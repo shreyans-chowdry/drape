@@ -6,14 +6,14 @@ A personal wardrobe app that runs on your iPhone from the Home Screen. No App St
 - **Match**: pick what you want to wear (say, a hoodie) and get ranked bottoms, shoes and layers, each with a % score and the reason it works. It also builds complete looks around that piece.
 - **Today**: three outfits a day based on the weather (Open-Meteo), the occasion (casual, work, date, gym, festive…) and what you've worn recently. Tap *Wear this* to log it.
 - **Learns from you**: *Wear this*, 👍 and 👎 change how pairings are ranked later.
-- **Stylist (optional)**: chat with Claude about your real closet ("dinner date tonight?", "pack for 3 days"). It can also auto-fill a new item from its photo. Uses your own Anthropic API key.
+- **Stylist (optional)**: chat with Google Gemini about your real closet ("dinner date tonight?", "pack for 3 days"). It can also auto-fill a new item from its photo. Uses your own Gemini API key, free from [Google AI Studio](https://aistudio.google.com/apikey). Drape picks the newest stable Flash model your key can use, and you can change it in Me → AI stylist key.
 - **Me**: wear stats, cost per wear, forgotten pieces, saved outfits, history, backups, and **separate profiles** (each has its own database).
 
 ## Where the data lives
 
 Everything is stored in IndexedDB on the device that uses it. Each person who opens Drape gets their own private closet on their own phone. Even on the same phone, every profile has a separate database (`drape-<profile>`). Nothing is uploaded, except that:
 - a rounded location goes to Open-Meteo, only if you tap *Use my location*;
-- wardrobe text and photos go to Anthropic, only when you use the Stylist with your own key.
+- wardrobe text and photos go to Google's Gemini API, only when you use the Stylist with your own key.
 
 Use **Me → Back up closet** now and then. It exports a JSON file with your photos that you can save to Files or iCloud Drive, and **Restore** reads it back.
 
@@ -45,7 +45,7 @@ A free Apple ID can install your own Xcode build on your phone, but the signatur
 | `js/engine.js` | Offline styling engine: colour harmony, formality and vibe match, known good and bad combos, pattern clash, weather, rotation, your feedback |
 | `js/app.js` | UI: Today, Closet, Match, Stylist, Me, plus sheets for adding and editing items |
 | `js/db.js` | One IndexedDB database per profile, plus backup export and import |
-| `js/ai.js` | Optional Claude stylist chat and photo auto-tagging (Anthropic SDK, run in the browser) |
+| `js/ai.js` | Optional Gemini stylist chat and photo auto-tagging (Gemini REST API, run in the browser) |
 | `sw.js` | Offline cache |
 
 ---
@@ -56,10 +56,10 @@ A free Apple ID can install your own Xcode build on your phone, but the signatur
 |---|---|---|---|---|---|---|
 | Core idea | AI stylist: chat, "Glow Up" photo feedback, Outfit Battles | Closet analytics + paid human stylists | Free digital closet, social | Closet + preloved marketplace | Manual cataloguing (iOS) | "What goes with this?" pairing + daily looks |
 | Getting clothes in | Photos + AI | Photos, assisted | Photos, background removal | Photos, background removal | Manual photos | Photo + automatic colour, or AI auto-fill |
-| Outfit suggestions | AI generated | Stylist / basic | Random "shuffle" | AI, weather | Manual / random | Explained rule engine + optional AI chat |
+| Outfit suggestions | AI generated | Stylist / basic | Random "shuffle" | AI, weather | Manual / random | Explained rule engine + optional Gemini chat |
 | Explains *why* | Partly, in chat | Stylist | No | No | No | **Every pairing has reasons** |
 | Works offline / no account | No | No | No | No | Yes | **Yes** |
-| Price | Subscription | Free / ~$19 AUD/mo | Free / ~$6/mo | Freemium + ads | ~$5 one-time | Free (AI uses your key) |
+| Price | Subscription | Free / ~$19 AUD/mo | Free / ~$6/mo | Freemium + ads | ~$5 one-time | Free (Gemini uses your key) |
 
 **What Essembl gets right:** Asking in plain language ("dinner tonight?") is easier than browsing a grid. Feedback on a photo of an outfit you're wearing is engaging. Its social features (Outfit Battles) help it grow.
 
@@ -70,6 +70,6 @@ A free Apple ID can install your own Xcode build on your phone, but the signatur
 4. *Cultural range.* Few apps know kurtas, Nehru jackets or juttis, or have a "festive" occasion. Drape includes them.
 5. *Lock-in and privacy.* Most apps keep your closet on their servers. Drape is local-first, with a JSON backup you control.
 
-**Worth building next:** background removal on photos, outfit-photo "glow up" feedback using Claude vision, a calendar of planned outfits, and a packing-list mode.
+**Worth building next:** background removal on photos, outfit-photo "glow up" feedback using Gemini vision, a calendar of planned outfits, and a packing-list mode.
 
 Sources: [Essembl on the App Store](https://apps.apple.com/app/id6479642952) · [Essembl screens](https://screensdesign.com/showcase/essembl-ai-styling-assistant) · [Wardrobe app comparison 2026](https://getwardrobe.com/compare/) · [Closet app roundup](https://www.altadaily.com/blog/closet-apps-2026). Pricing figures come from vendor-written comparisons, so check them in the App Store.

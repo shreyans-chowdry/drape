@@ -20,6 +20,8 @@ const S = {
   matchCat: 'top',
   chat: [],
   apiKey: '',
+  aiModel: '',
+  aiModels: [],
   busy: false,
 };
 
@@ -81,7 +83,9 @@ async function loadAll() {
   S.items.sort((a, b) => (b.created || 0) - (a.created || 0));
   S.wears.sort((a, b) => b.date - a.date);
   S.prefs = await db.getPref('pairs', {});
-  S.apiKey = await db.getPref('apiKey', '');
+  S.apiKey = await db.getPref('geminiKey', '');
+  S.aiModel = await db.getPref('aiModel', '');
+  S.aiModels = await db.getPref('aiModels', []);
   S.chat = await db.getPref('chat', []);
   S.weather = await db.getPref('weather', null);
   S.occasion = await db.getPref('occasion', 'casual');
@@ -485,7 +489,7 @@ function editItem(existing) {
           ai.innerHTML = '<span class="spinner"></span> Looking at your photo…'; ai.disabled = true;
           try {
             const { tagPhoto } = await import('./ai.js');
-            const t = await tagPhoto({ apiKey: S.apiKey, blob: it.photo });
+            const t = await tagPhoto({ apiKey: S.apiKey, model: S.aiModel, blob: it.photo });
             if (t.name && !$('#f-name', sheet).value) $('#f-name', sheet).value = t.name;
             if (t.category) { it.category = t.category; setPressed($('#f-cat', sheet), t.category); $('#f-type', sheet).innerHTML = typeOptions(t.category); }
             if (t.type) { it.type = t.type; $('#f-type', sheet).value = t.type; } else { it.type = $('#f-type', sheet).value; }
@@ -619,15 +623,15 @@ function renderStylist() {
     view.innerHTML = `
       <div class="eyebrow">AI stylist</div><h1>Ask anything</h1>
       <div class="card pad">
-        <p style="margin-top:0">The stylist is Claude looking at your actual closet. Ask for outfits for an event, packing lists, or what to buy next. It also auto-tags new clothes from their photos.</p>
-        <p class="muted small">It needs your own Anthropic API key (from console.anthropic.com). The key is stored only on this device and is sent only to Anthropic. Everything else in Drape works without it.</p>
-        <label class="field"><span>API key</span><input class="input" id="k" type="password" placeholder="sk-ant-…" autocomplete="off"></label>
+        <p style="margin-top:0">The stylist is Google Gemini looking at your actual closet. Ask for outfits for an event, packing lists, or what to buy next. It also auto-tags new clothes from their photos.</p>
+        <p class="muted small">It needs your own Gemini API key — get one free at aistudio.google.com → Get API key. The key is stored only on this device and is sent only to Google. Everything else in Drape works without it.</p>
+        <label class="field"><span>Gemini API key</span><input class="input" id="k" type="password" placeholder="AIza…" autocomplete="off"></label>
         <button class="btn block" id="k-save" style="margin-top:12px">Turn on stylist</button>
       </div>`;
-    $('#k-save').onclick = async () => {
-      const k = $('#k').value.trim();
-      if (!k.startsWith('sk-')) return toast('That does not look like an API key');
-      S.apiKey = k; await db.setPref('apiKey', k); renderStylist();
+    $('#k-save').onclick = async e => {
+      e.target.innerHTML = '<span class="spinner"></span> Checking key…';
+      try { await connectKey($('#k').value.trim()); renderStylist(); }
+      catch (err) { toast(err.message); e.target.textContent = 'Turn on stylist'; }
     };
     return;
   }
@@ -669,7 +673,7 @@ async function send(text) {
   try {
     const { askStylist } = await import('./ai.js');
     const history = S.chat.filter(m => !m.error).slice(-16).map(({ role, content }) => ({ role, content }));
-    const { text: reply } = await askStylist({ apiKey: S.apiKey, history, items: S.items, context: ctxText() });
+    const { text: reply } = await askStylist({ apiKey: S.apiKey, model: S.aiModel, history, items: S.items, context: ctxText() });
     S.chat.push({ role: 'assistant', content: reply });
   } catch (e) {
     S.chat.pop();
@@ -772,17 +776,41 @@ async function switchProfile() {
   await loadAll(); render();
 }
 
+// Validate a Gemini key by listing its models, then pick the newest stable Flash.
+async function connectKey(key) {
+  if (!/^AIza[\w-]{20,}$/.test(key)) throw new Error('That does not look like a Gemini API key (it starts with AIza)');
+  const { listModels } = await import('./ai.js');
+  const models = await listModels(key);
+  if (!models.length) throw new Error('This key has no Gemini models available');
+  S.apiKey = key; S.aiModels = models;
+  if (!models.includes(S.aiModel)) S.aiModel = models[0];
+  await db.setPref('geminiKey', key); await db.setPref('aiModels', models); await db.setPref('aiModel', S.aiModel);
+}
+
 function keySheet() {
+  const opts = S.aiModels.length ? S.aiModels : [S.aiModel].filter(Boolean);
   openSheet(`
     <div class="sheet-head"><h2>AI stylist</h2><button class="btn sm ghost" data-close>Close</button></div>
-    <p class="muted">Uses your own Anthropic API key, stored only in this profile on this device. Requests go straight from your phone to Anthropic and are billed to your key.</p>
-    <label class="field"><span>API key</span><input class="input" id="k2" type="password" placeholder="sk-ant-…" value="${esc(S.apiKey)}" autocomplete="off"></label>
+    <p class="muted">Uses your own Google Gemini API key (free from aistudio.google.com), stored only in this profile on this device. Requests go straight from your phone to Google.</p>
+    <label class="field"><span>Gemini API key</span><input class="input" id="k2" type="password" placeholder="AIza…" value="${esc(S.apiKey)}" autocomplete="off"></label>
+    ${opts.length ? `<label class="field"><span>Model</span><select class="input" id="k2-model">${opts.map(m => `<option ${m === S.aiModel ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></label>` : ''}
     <button class="btn block" id="k2-save" style="margin-top:12px">Save</button>
     ${S.apiKey ? '<button class="btn block danger" id="k2-del" style="margin-top:8px">Remove key</button>' : ''}
   `, {
     onMount(sheet, close) {
-      $('#k2-save', sheet).onclick = async () => { S.apiKey = $('#k2', sheet).value.trim(); await db.setPref('apiKey', S.apiKey); close(); renderMe(); toast('Saved'); };
-      const d = $('#k2-del', sheet); if (d) d.onclick = async () => { S.apiKey = ''; await db.setPref('apiKey', ''); close(); renderMe(); };
+      $('#k2-save', sheet).onclick = async e => {
+        const key = $('#k2', sheet).value.trim();
+        const picked = $('#k2-model', sheet)?.value;
+        e.target.innerHTML = '<span class="spinner"></span> Checking key…';
+        try {
+          if (picked) S.aiModel = picked;
+          await connectKey(key);
+          close(); renderMe(); toast(`Stylist on · ${S.aiModel}`);
+        } catch (err) { toast(err.message); e.target.textContent = 'Save'; }
+      };
+      const d = $('#k2-del', sheet); if (d) d.onclick = async () => {
+        S.apiKey = ''; S.aiModels = []; await db.setPref('geminiKey', ''); await db.setPref('aiModels', []); close(); renderMe();
+      };
     },
   });
 }
@@ -790,7 +818,7 @@ function keySheet() {
 async function exportBackup() {
   toast('Preparing backup…');
   const data = await db.exportAll();
-  data.prefs = (data.prefs || []).filter(p => p.id !== 'apiKey'); // never put the key in a file
+  data.prefs = (data.prefs || []).filter(p => p.id !== 'geminiKey'); // never put the key in a file
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
   const name = `drape-${db.activeProfile().name.toLowerCase().replace(/\W+/g, '-')}-${new Date().toISOString().slice(0, 10)}.json`;
   const file = new File([blob], name, { type: 'application/json' });
