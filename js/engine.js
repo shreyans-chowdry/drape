@@ -8,7 +8,7 @@ export const CATEGORIES = [
   { id: 'outer', label: 'Layers', one: 'Layer' },
   { id: 'shoes', label: 'Shoes', one: 'Shoes' },
   { id: 'onepiece', label: 'One-piece', one: 'One-piece' },
-  { id: 'accessory', label: 'Extras', one: 'Extra' },
+  { id: 'accessory', label: 'Accessories', one: 'Accessory' },
 ];
 
 // f = default formality (1 lounge … 5 black tie), w = warmth (1 hot-weather … 5 winter)
@@ -73,13 +73,24 @@ export const TYPES = {
     suit: { label: 'Suit (2-piece)', f: 5, w: 3, v: ['formal'] },
   },
   accessory: {
+    socks: { label: 'Socks', f: 2, w: 3, v: ['casual', 'smart', 'sporty', 'street'] },
+    sunglasses: { label: 'Sunglasses', f: 2, w: 3, v: ['casual', 'street', 'smart'] },
     watch: { label: 'Watch', f: 3, w: 3, v: ['smart', 'casual', 'formal'] },
     belt: { label: 'Belt', f: 3, w: 3, v: ['smart', 'casual', 'formal'] },
-    cap: { label: 'Cap / hat', f: 1, w: 3, v: ['street', 'sporty', 'casual'] },
+    cap: { label: 'Cap', f: 1, w: 3, v: ['street', 'sporty', 'casual'] },
+    beanie: { label: 'Beanie', f: 1, w: 5, v: ['street', 'casual'] },
+    hat: { label: 'Hat', f: 2, w: 3, v: ['casual', 'smart'] },
     bag: { label: 'Bag', f: 3, w: 3, v: ['casual', 'smart'] },
-    sunglasses: { label: 'Sunglasses', f: 2, w: 3, v: ['casual', 'street', 'smart'] },
-    jewelry: { label: 'Jewellery', f: 3, w: 3, v: ['smart', 'formal', 'ethnic'] },
+    backpack: { label: 'Backpack', f: 1, w: 3, v: ['casual', 'street', 'sporty'] },
+    wallet: { label: 'Wallet', f: 3, w: 3, v: ['smart', 'casual'] },
+    tie: { label: 'Tie', f: 5, w: 3, v: ['formal', 'smart'] },
     scarf: { label: 'Scarf', f: 3, w: 4, v: ['smart', 'casual'] },
+    gloves: { label: 'Gloves', f: 2, w: 5, v: ['casual', 'smart'] },
+    bracelet: { label: 'Bracelet', f: 2, w: 3, v: ['casual', 'street', 'ethnic'] },
+    chain: { label: 'Chain / necklace', f: 2, w: 3, v: ['street', 'casual', 'ethnic'] },
+    ring: { label: 'Ring', f: 2, w: 3, v: ['street', 'smart', 'ethnic'] },
+    earrings: { label: 'Earrings', f: 3, w: 3, v: ['smart', 'ethnic', 'street'] },
+    jewelry: { label: 'Other jewellery', f: 3, w: 3, v: ['smart', 'formal', 'ethnic'] },
   },
 };
 
@@ -378,6 +389,46 @@ export function generateLooks(items, ctx = {}, prefs = {}, { count = 3, seed = 0
     looks.push({ pieces: order(pieces), ...pieceTotal(pieces, ctx, prefs) });
   }
   return looks;
+}
+
+/**
+ * Offline fit builder: keep `locked` pieces, fill each category in `need`.
+ * Returns up to `count` distinct looks.
+ */
+export function buildAround(locked, need, items, ctx = {}, prefs = {}, { count = 3 } = {}) {
+  const lockedIds = new Set(locked.map(i => i.id));
+  const pool = items.filter(i => !i.archived && !i.laundry && !lockedIds.has(i.id));
+  const has = cat => locked.some(i => i.category === cat || (i.category === 'onepiece' && (cat === 'top' || cat === 'bottom')));
+  const slots = need.filter(c => !has(c));
+  if (!slots.length) return [{ pieces: order(locked), ...pieceTotal(locked, ctx, prefs) }];
+  const first = slots[0];
+  const firstOptions = pool.filter(i => i.category === first)
+    .map(i => ({ i, s: pieceTotal([...locked, i], ctx, prefs).s }))
+    .sort((a, b) => b.s - a.s).slice(0, count + 2);
+  const looks = [];
+  for (const f of firstOptions) {
+    const pieces = [...locked, f.i];
+    for (const cat of slots.slice(1)) {
+      const best = pool.filter(i => i.category === cat && !pieces.includes(i))
+        .map(i => ({ i, s: pieceTotal([...pieces, i], ctx, prefs).s }))
+        .sort((a, b) => b.s - a.s)[0];
+      if (best) pieces.push(best.i);
+    }
+    looks.push({ pieces: order(pieces), ...pieceTotal(pieces, ctx, prefs) });
+  }
+  return looks.sort((a, b) => b.s - a.s).slice(0, count);
+}
+
+/** Offline "do I own this?": same category, then type and colour closeness. */
+export function similarOwned(probe, items) {
+  return items.filter(i => i.category === probe.category && !i.archived).map(i => {
+    let s = 0;
+    if (i.type === probe.type) s += 0.5;
+    if (i.color === probe.color) s += 0.35;
+    else if (colorById(i.color).n === colorById(probe.color).n) s += 0.1;
+    if ((i.pattern || 'solid') === (probe.pattern || 'solid')) s += 0.15;
+    return { item: i, similarity: Math.round(s * 100) };
+  }).filter(r => r.similarity >= 50).sort((a, b) => b.similarity - a.similarity);
 }
 
 export function scoreLabel(s) {
