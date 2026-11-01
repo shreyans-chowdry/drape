@@ -3,7 +3,7 @@ import {
   CATEGORIES, TYPES, COLORS, PATTERNS, OCCASIONS, SEASONS, typeInfo, colorById, itemF, itemW,
   suggestFor, generateLooks, buildAround, similarOwned, scoreLabel, pctScore, pairKey, currentSeason,
 } from './engine.js';
-import { prepare, thumbOf, cutout, colorIn } from './photo.js';
+import { prepare, thumbOf, cutout, colorIn, drawTo, maskCanvas } from './photo.js';
 import { BUILTIN_KEY } from './config.js';
 
 // ---------------------------------------------------------------- state
@@ -50,7 +50,7 @@ function toast(msg, ms = 2400) {
   t.textContent = msg; t.classList.add('show');
   clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), ms);
 }
-const ai = () => import('./ai.js');
+const ai = () => import('./ai.js').then(m => { m.setFallbacks(S.aiModels); return m; });
 const uniq = arr => [...new Set(arr.filter(Boolean))];
 
 // ---------------------------------------------------------------- places
@@ -187,13 +187,29 @@ async function scanFile(file, placeId) {
     name: `${colorById(color).label} piece`, category: 'top', type: 'tshirt', color,
     original, photo: original, photoMode: 'original', thumb: await thumbOf(original), placeId, review: true,
   })];
+  // pixel mask of the clothing, made on the phone while Gemini reads the photo
+  const masking = (async () => {
+    const { clothesMask } = await import('./segment.js');
+    const small = drawTo(img, 1024), m = await clothesMask(small);
+    return m && maskCanvas(m, small.width, small.height);
+  })().catch(() => null);
   if (!aiReady()) return fallback();
   const { scanPhoto } = await ai();
-  const garments = await scanPhoto({ apiKey: S.apiKey, model: S.aiModel, blob: original });
+  let garments;
+  try { garments = await scanPhoto({ apiKey: S.apiKey, model: S.aiModel, blob: original }); } catch (err) {
+    if (err.status === 400 || err.status === 403) throw err;
+    // Gemini busy or offline: still save a clean cut-out now; details can be filled in by hand
+    const mask = await masking;
+    if (!mask) throw err;
+    const cut = await cutout(img, {}, { mask });
+    toast('Gemini is busy, so the details are blank — the photo is still cut out', 3500);
+    return [newItem({ name: `${colorById(color).label} piece`, category: 'top', type: 'tshirt', color, original, cutout: cut, photo: cut, photoMode: 'cutout', thumb: await thumbOf(cut), placeId, review: true })];
+  }
   if (!garments.length) return fallback();
+  const mask = await masking;
   const drafts = [];
   for (const g of garments) {
-    const cut = await cutout(img, g);
+    const cut = await cutout(img, g, { mask });
     drafts.push(newItem({
       name: g.name, category: g.category, type: g.type,
       color: g.color || colorIn(img, g.box_2d), color2: g.color2, pattern: g.pattern,
@@ -214,7 +230,7 @@ async function makeStudio(item, { quiet = true } = {}) {
   try {
     const { studioPhoto } = await ai();
     const blob = await studioPhoto({
-      apiKey: S.apiKey, model: S.studioModel, blob: item.cutout || item.original || item.photo,
+      apiKey: S.apiKey, model: S.studioModel, blob: item.original || item.cutout || item.photo,
       garment: { name: item.name, description: item.ai?.description, category: item.category },
     });
     const fresh = byId(item.id) || item;
@@ -226,7 +242,7 @@ async function makeStudio(item, { quiet = true } = {}) {
   } catch (e) {
     if ([403, 404, 429].includes(e.status) || /not available|quota|not allowed/i.test(e.message)) {
       S.studioBlocked = true;
-      toast('Studio photos are not available on this key right now — using clean cut-outs', 3500);
+      toast(e.billing ? 'Studio photos need billing turned on for the Gemini key — using clean cut-outs' : 'Studio photos are not available on this key right now — using clean cut-outs', 4000);
     } else if (!quiet) toast(e.message);
     return false;
   }

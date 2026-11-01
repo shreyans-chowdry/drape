@@ -15,7 +15,8 @@ export const DEFAULT_MODEL = 'gemini-flash-latest';
 
 // When a model is overloaded (503) or hiccups (500), wait briefly, then fall back
 // to steadier Flash models so a busy moment never breaks a scan or a fit.
-const FALLBACKS = ['gemini-flash-latest', 'gemini-2.5-flash'];
+let FALLBACKS = ['gemini-flash-latest'];
+export const setFallbacks = models => { FALLBACKS = models.slice(0, 4); };
 async function call(apiKey, path, body) {
   const m = path.match(/^models\/([^:]+):generateContent$/);
   const tries = [path];
@@ -55,6 +56,7 @@ async function once(apiKey, path, body) {
             : res.status === 429 ? 'Gemini rate limit or free quota reached — try again in a minute.'
               : `Gemini error (${res.status}): ${msg}`);
     err.status = res.status;
+    err.billing = res.status === 429 && /limit: 0\b/.test(msg); // free tier has no quota for this model at all
     throw err;
   }
   return data;
@@ -207,10 +209,11 @@ function studioPrompt(g) {
     : g.category === 'accessory' ? 'the item centred, front view'
       : g.category === 'bottom' ? 'laid flat, front view, legs straight'
         : 'on an invisible ghost mannequin, front view';
-  return `Create a clean e-commerce product photo of ONLY the ${g.name}${g.description ? ` (${g.description})` : ''} from this photo.
-Keep the exact colour, shade, wash, pattern, logos, printed text, fabric texture and every detail identical — do not redesign, recolour or tidy away distinctive features.
-Show it as ${pose}, centred with even margins, on a seamless warm light-grey studio background (#F1EEE8) with soft natural lighting and a subtle shadow.
-No people, no hands, no hangers, no props, no text or watermarks. Portrait 3:4.`;
+  return `Create a professional e-commerce product photo, like an official brand website listing, of ONLY the ${g.name}${g.description ? ` (${g.description})` : ''} in this photo.
+The photo may show it worn by a person, crumpled, at an angle or partly hidden: remove the person entirely, straighten it to a flat, symmetrical front view, smooth out wrinkles as if freshly pressed, and rebuild any hidden parts (sleeves, collar, hem) consistently with what is visible.
+Keep its identity exact: the same colour and shade, wash, pattern, fabric texture, and every logo and printed word copied letter for letter in the same position and size. Do not redesign, recolour or add details.
+Remove price stickers, tags, lint and stains. Show it as ${pose}, centred with even margins, on a seamless warm light-grey studio background (#F1EEE8) with soft, even lighting and a subtle shadow.
+No people, skin, hands, hangers, props, text or watermarks. Portrait 3:4.`;
 }
 
 /** Redraw a garment as a shop-style product photo. Returns a Blob. */
