@@ -17,6 +17,8 @@ export const DEFAULT_MODEL = 'gemini-flash-latest';
 // to steadier Flash models so a busy moment never breaks a scan or a fit.
 let FALLBACKS = ['gemini-flash-latest'];
 export const setFallbacks = models => { FALLBACKS = models.slice(0, 4); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 async function call(apiKey, path, body) {
   const m = path.match(/^models\/([^:]+):generateContent$/);
   const tries = [path];
@@ -27,12 +29,33 @@ async function call(apiKey, path, body) {
   for (let i = 0; i < tries.length; i++) {
     try { return await once(apiKey, tries[i], body); } catch (err) {
       last = err;
-      if (![500, 503].includes(err.status)) throw err;
-      await new Promise(r => setTimeout(r, 800 * (i + 1)));
+      const busy = [500, 503].includes(err.status);
+      // retired model or its free quota used up: another model has its own quota, so move on
+      const gone = m && [404, 429].includes(err.status);
+      if (!busy && !gone) throw err;
+      if (busy) await sleep(800 * (i + 1));
+      else while (tries[i + 1] === tries[i]) i++;
     }
   }
-  last.message = 'Gemini is very busy right now — try again in a minute.';
+  if (last.status !== 429) last.message = 'Gemini is very busy right now — try again in a minute.';
   throw last;
+}
+
+/**
+ * Some models are overloaded, retired or out of free quota at any moment.
+ * Ping the best candidates at once with a tiny prompt and return the ones that
+ * answer quickly, best model first; the rest keep their original order after.
+ */
+export async function rankModels(apiKey, models, { limitMs = 12000 } = {}) {
+  const candidates = models.slice(0, 8);
+  const ok = await Promise.all(candidates.map(id => Promise.race([
+    once(apiKey, `models/${id}:generateContent`, { contents: [{ role: 'user', parts: [{ text: 'Reply with OK.' }] }] }).then(() => true, () => false),
+    sleep(limitMs).then(() => false),
+  ])));
+  const healthy = candidates.filter((_, i) => ok[i]);
+  // a lite model is a fallback, not a first choice, when a full Flash is healthy
+  healthy.sort((a, b) => /lite/.test(a) - /lite/.test(b));
+  return [...healthy, ...models.filter(id => !healthy.includes(id))].map(id => ({ id, healthy: healthy.includes(id) }));
 }
 
 async function once(apiKey, path, body) {
@@ -78,7 +101,7 @@ export async function listModels(apiKey) {
   const stable = id => (/(preview|exp)/.test(id) ? 0 : 1);
 
   const text = ids
-    .filter(id => id.startsWith('gemini') && !/(image|banana|tts|audio|live|embedding|vision|robotics|computer|thinking-exp)/.test(id))
+    .filter(id => id.startsWith('gemini') && !/(image|banana|tts|audio|live|embedding|vision|robotics|computer|thinking-exp|transcribe|omni|customtools)/.test(id))
     .sort((a, b) => {
       const r = id => stable(id) * 2 + (id.includes('flash') && !id.includes('lite') ? 1 : 0);
       return r(b) - r(a) || version(b) - version(a) || a.length - b.length;

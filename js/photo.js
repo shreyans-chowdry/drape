@@ -37,6 +37,27 @@ export async function thumbOf(blob, max = 420) {
   return canvasBlob(drawTo(await loadImage(blob), max), 0.8);
 }
 
+/**
+ * True when the photo already looks like a shop listing: the edges are one
+ * plain, even colour (a studio sweep or a flat white/grey backdrop). Those
+ * photos are kept exactly as they are instead of being cut out again.
+ */
+export function isProductShot(img) {
+  const c = drawTo(img, 200), { width: w, height: h } = c;
+  const d = c.getContext('2d').getImageData(0, 0, w, h).data;
+  const band = Math.max(3, Math.round(Math.min(w, h) * 0.04)), px = [];
+  for (let y = 0; y < h; y += 2) for (let x = 0; x < w; x += 2) {
+    if (x < band || y < band || x >= w - band || y >= h - band) {
+      const i = (y * w + x) * 4;
+      px.push([d[i], d[i + 1], d[i + 2]]);
+    }
+  }
+  const mean = [0, 1, 2].map(k => px.reduce((a, p) => a + p[k], 0) / px.length);
+  const spread = Math.sqrt(px.reduce((a, p) => a + (p[0] - mean[0]) ** 2 + (p[1] - mean[1]) ** 2 + (p[2] - mean[2]) ** 2, 0) / px.length);
+  const light = (mean[0] + mean[1] + mean[2]) / 3;
+  return spread < 14 && light > 150;
+}
+
 /** Colour of a region, used to give each detected garment its own colour guess. */
 export function colorIn(img, box) {
   const [y0, x0, y1, x1] = box.map(v => v / 1000);

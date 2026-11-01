@@ -3,7 +3,7 @@ import {
   CATEGORIES, TYPES, COLORS, PATTERNS, OCCASIONS, SEASONS, typeInfo, colorById, itemF, itemW,
   suggestFor, generateLooks, buildAround, similarOwned, scoreLabel, pctScore, pairKey, currentSeason,
 } from './engine.js';
-import { prepare, thumbOf, cutout, colorIn, drawTo, maskCanvas } from './photo.js';
+import { prepare, thumbOf, cutout, colorIn, drawTo, maskCanvas, isProductShot } from './photo.js';
 import { BUILTIN_KEY } from './config.js';
 
 // ---------------------------------------------------------------- state
@@ -187,8 +187,10 @@ async function scanFile(file, placeId) {
     name: `${colorById(color).label} piece`, category: 'top', type: 'tshirt', color,
     original, photo: original, photoMode: 'original', thumb: await thumbOf(original), placeId, review: true,
   })];
+  // already a clean product photo (e.g. made in the Gemini app)? keep it exactly as it is
+  const ready = isProductShot(img);
   // pixel mask of the clothing, made on the phone while Gemini reads the photo
-  const masking = (async () => {
+  const masking = ready ? Promise.resolve(null) : (async () => {
     const { clothesMask } = await import('./segment.js');
     const small = drawTo(img, 1024), m = await clothesMask(small);
     return m && maskCanvas(m, small.width, small.height);
@@ -200,6 +202,7 @@ async function scanFile(file, placeId) {
     if (err.status === 400 || err.status === 403) throw err;
     // Gemini busy or offline: still save a clean cut-out now; details can be filled in by hand
     const mask = await masking;
+    if (ready) { toast('Gemini is busy, so the details are blank — fill them in or rescan later', 3500); return fallback(); }
     if (!mask) throw err;
     const cut = await cutout(img, {}, { mask });
     toast('Gemini is busy, so the details are blank — the photo is still cut out', 3500);
@@ -209,7 +212,8 @@ async function scanFile(file, placeId) {
   const mask = await masking;
   const drafts = [];
   for (const g of garments) {
-    const cut = await cutout(img, g, { mask });
+    const keep = ready && garments.length === 1;
+    const cut = keep ? null : await cutout(img, g, { mask });
     drafts.push(newItem({
       name: g.name, category: g.category, type: g.type,
       color: g.color || colorIn(img, g.box_2d), color2: g.color2, pattern: g.pattern,
@@ -217,7 +221,7 @@ async function scanFile(file, placeId) {
       seasons: (g.seasons || []).length >= 4 ? [] : g.seasons,
       brand: g.brandGuess || undefined,
       ai: { description: g.description, fingerprint: g.fingerprint, material: g.material, styleTags: g.styleTags || [] },
-      original, cutout: cut, photo: cut, photoMode: 'cutout', thumb: await thumbOf(cut),
+      original, ...(keep ? { photo: original, photoMode: 'original' } : { cutout: cut, photo: cut, photoMode: 'cutout' }), thumb: await thumbOf(cut || original),
       placeId, review: garments.length > 1,
     }));
   }
@@ -1299,16 +1303,19 @@ function placesSheet() {
 // Validate a Gemini key by listing its models, then pick the newest stable Flash.
 async function connectKey(key) {
   if (!/^[\w.-]{30,}$/.test(key)) throw new Error('That does not look like a Gemini API key');
-  const { listModels } = await ai();
-  const { text, image } = await listModels(key);
-  if (!text.length) throw new Error('This key has no Gemini models available');
+  const { listModels, rankModels } = await ai();
+  const { text: listed, image } = await listModels(key);
+  if (!listed.length) throw new Error('This key has no Gemini models available');
+  // try the models now and put the ones that actually answer first
+  const ranked = await rankModels(key, listed);
+  const healthy = ranked.filter(m => m.healthy).map(m => m.id), text = ranked.map(m => m.id);
   S.apiKey = key; S.aiModels = text; S.imageModels = image;
-  if (!text.includes(S.aiModel)) S.aiModel = text[0];
+  if (!healthy.includes(S.aiModel)) S.aiModel = healthy[0] || text[0];
   const studioOff = await db.getPref('studioOff', false);
   if (S.studioModel && !image.includes(S.studioModel)) S.studioModel = '';
   if (!S.studioModel && !studioOff) S.studioModel = image[0] || '';
   S.studioBlocked = false;
-  await Promise.all([db.setPref('geminiKey', key === BUILTIN_KEY ? '' : key), db.setPref('aiModels', text), db.setPref('imageModels', image), db.setPref('aiModel', S.aiModel), db.setPref('studioModel', S.studioModel)]);
+  await Promise.all([db.setPref('geminiKey', key === BUILTIN_KEY ? '' : key), db.setPref('aiModels', text), db.setPref('imageModels', image), db.setPref('aiModel', S.aiModel), db.setPref('studioModel', S.studioModel), db.setPref('modelsCheckedAt', Date.now())]);
 }
 
 function geminiSheet() {
@@ -1472,8 +1479,8 @@ async function loadSample() {
   if (linkKey) {
     history.replaceState(null, '', location.pathname + location.search);
     try { await connectKey(linkKey.trim()); toast(`Gemini connected · ${S.aiModel}`); } catch (err) { toast(err.message, 3500); }
-  } else if (S.apiKey && !S.aiModels.length) {
-    connectKey(S.apiKey).then(render).catch(() => {}); // built-in key: pick models quietly on first launch
+  } else if (S.apiKey && (!S.aiModels.length || Date.now() - (await db.getPref('modelsCheckedAt', 0)) > 6 * 3600e3)) {
+    connectKey(S.apiKey).then(render).catch(() => {}); // re-check which models are healthy, quietly, a few times a day
   }
   render();
   refreshWeatherIfStale();
