@@ -93,6 +93,7 @@ export async function getPref(key, fallback) {
 export const setPref = (key, value) => put('prefs', { id: key, value });
 
 // ---- Backup: JSON with images inlined as data URLs ----
+const BLOB_FIELDS = ['photo', 'thumb', 'original', 'cutout', 'studio'];
 const blobToDataURL = b => new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(b); });
 const dataURLToBlob = async u => (await fetch(u)).blob();
 
@@ -101,10 +102,7 @@ export async function exportAll() {
   for (const s of STORES) {
     const rows = await all(s);
     if (s === 'items') {
-      for (const r of rows) {
-        if (r.photo instanceof Blob) r.photo = await blobToDataURL(r.photo);
-        if (r.thumb instanceof Blob) r.thumb = await blobToDataURL(r.thumb);
-      }
+      for (const r of rows) for (const k of BLOB_FIELDS) if (r[k] instanceof Blob) r[k] = await blobToDataURL(r[k]);
     }
     out[s] = rows;
   }
@@ -117,8 +115,7 @@ export async function importAll(data, { replace = false } = {}) {
     if (replace) await clear(s);
     for (const r of data[s] || []) {
       if (s === 'items') {
-        if (typeof r.photo === 'string') r.photo = await dataURLToBlob(r.photo);
-        if (typeof r.thumb === 'string') r.thumb = await dataURLToBlob(r.thumb);
+        for (const k of BLOB_FIELDS) if (typeof r[k] === 'string' && r[k].startsWith('data:')) r[k] = await dataURLToBlob(r[k]);
       }
       await put(s, r);
     }

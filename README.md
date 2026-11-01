@@ -2,12 +2,33 @@
 
 A personal wardrobe app that runs on your iPhone from the Home Screen. No App Store, no developer account and no server. It works offline.
 
-- **Closet**: photograph each piece. Drape detects the colour, and you pick the type (shirt, hoodie, kurta, chinos…).
-- **Match**: pick what you want to wear (say, a hoodie) and get ranked bottoms, shoes and layers, each with a % score and the reason it works. It also builds complete looks around that piece.
-- **Today**: three outfits a day based on the weather (Open-Meteo), the occasion (casual, work, date, gym, festive…) and what you've worn recently. Tap *Wear this* to log it.
-- **Learns from you**: *Wear this*, 👍 and 👎 change how pairings are ranked later.
-- **Stylist (optional)**: chat with Google Gemini about your real closet ("dinner date tonight?", "pack for 3 days"). It can also auto-fill a new item from its photo. Uses your own Gemini API key, free from [Google AI Studio](https://aistudio.google.com/apikey). Drape picks the newest stable Flash model your key can use, and you can change it in Me → AI stylist key.
-- **Me**: wear stats, cost per wear, forgotten pieces, saved outfits, history, backups, and **separate profiles** (each has its own database).
+- **Scan**: take one photo, a whole shelf, or pick 20 photos at once. Gemini finds every item in each photo (tops, jeans, shoes, socks, sunglasses, jewellery…), names it, and picks its category, colour and pattern. It writes a product-page **description** and a **tell-apart fingerprint** (wash, fades, rips, logos, buttons), which is how two pairs of jeans stay distinct.
+- **Shop-style photos**: each piece gets a **clean cut-out**, made on the phone from Gemini's outline of the item. If your key can use a Gemini image model it also gets a **studio product photo**. The original photo is always kept, and you can switch between all three.
+- **Build a fit**: pick any pieces (a shirt, shoes, both, or nothing), choose what you need (bottom, shoes, layer, socks, accessories), and type where you're going or the mood. Gemini reads every piece's description and builds 3 looks with the reason they work and a styling tip.
+- **Places (the library)**: file each piece under Room › Storage › Spot (e.g. Bedroom › Wardrobe › Shelf 2, or Under-bed box › Blue pouch). Every outfit has a 📍 **Find** button that lists where to grab each piece.
+- **Own it?**: snap something in a shop, or a screenshot. Gemini compares it with your pieces in that category, using photos and descriptions, and says whether you already own it, which piece is closest and where it's kept, and what it would go with.
+- **Match**: instant, offline pairing scores for any piece you pick.
+- **Today**: daily looks based on the weather, the occasion and what you wore recently. It learns from 👍/👎 and from what you mark as worn.
+- **Chat**: ask anything about your closet.
+
+## How the "backend" works
+
+There is no server. Each phone's database *is* the backend:
+
+```
+iPhone (Home Screen app)
+ ├─ IndexedDB "drape-<profile>"   ← one private database per profile
+ │   items: photos (original / cut-out / studio), type, colours, pattern,
+ │          formality, warmth, brand, size, price, place, AI description,
+ │          tell-apart fingerprint, wear history
+ ├─ Offline styling engine        ← colour harmony, formality, vibe, proven combos,
+ │                                   pattern clash, weather, rotation, your feedback
+ └─ Gemini (your own key) ───────► scan · describe · outline · studio photo ·
+                                    build fits · compare when shopping · chat
+GitHub Pages: hosts the code only; your data never goes there.
+```
+
+The Gemini key is entered **inside the app** (Me → Gemini AI, or on first launch). It is stored only in that profile on that phone, sent only to Google, and never included in backups.
 
 ## Where the data lives
 
@@ -45,7 +66,8 @@ A free Apple ID can install your own Xcode build on your phone, but the signatur
 | `js/engine.js` | Offline styling engine: colour harmony, formality and vibe match, known good and bad combos, pattern clash, weather, rotation, your feedback |
 | `js/app.js` | UI: Today, Closet, Match, Stylist, Me, plus sheets for adding and editing items |
 | `js/db.js` | One IndexedDB database per profile, plus backup export and import |
-| `js/ai.js` | Optional Gemini stylist chat and photo auto-tagging (Gemini REST API, run in the browser) |
+| `js/ai.js` | Gemini: scan + describe + outline, studio photo, fit builder, shopping check, chat |
+| `js/photo.js` | On-device photo work: resize, thumbnails, outline cut-out on a studio background |
 | `sw.js` | Offline cache |
 
 ---

@@ -1,8 +1,8 @@
 // Offline shell: cache the app files, network-first so updates land on next launch.
-const CACHE = 'drape-v2';
+const CACHE = 'drape-v3';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
-  'js/app.js', 'js/db.js', 'js/engine.js', 'js/ai.js',
+  'js/app.js', 'js/db.js', 'js/engine.js', 'js/ai.js', 'js/photo.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 

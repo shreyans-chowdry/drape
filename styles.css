@@ -240,3 +240,56 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 
 .detail-ph { overflow: hidden; aspect-ratio: 4/5; width: min(100%, calc(46dvh * .8)); margin: 0 auto; padding: 0; }
 .detail-ph img, .detail-ph .swatch-ph { width: 100%; height: 100%; object-fit: cover; }
+
+/* ---------- v2: scan, places, fit builder, own-it ---------- */
+.seg { display: flex; gap: 4px; padding: 4px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); }
+.seg button { flex: 1; height: 34px; border-radius: 999px; font-size: 14px; font-weight: 600; color: var(--ink-2); white-space: nowrap; padding: 0 10px; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / .1); }
+
+.pin-ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; }
+.pin-tag { color: var(--accent); display: inline-flex; flex: none; }
+.pin-tag .pin-ic { width: 13px; height: 13px; }
+.btn .pin-ic { width: 16px; height: 16px; }
+.place-line { display: flex; align-items: center; gap: 8px; width: 100%; margin: 12px 0 8px; padding: 12px 14px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 15px; text-align: left; }
+.place-line .chev { opacity: .7; }
+.place-grid { display: grid; gap: 8px; }
+.group-h { display: flex; align-items: center; gap: 6px; margin: 18px 0 10px; font-size: 15px; }
+.group-h:first-child { margin-top: 0; }
+
+.badge.new { background: var(--accent); color: var(--accent-ink); }
+.review-banner { background: var(--accent-soft); border-color: transparent; box-shadow: none; margin-bottom: 12px; }
+.scan-card { margin-bottom: 14px; }
+.key-card { border-style: dashed; box-shadow: none; }
+
+.add-option { position: relative; display: flex; gap: 14px; align-items: flex-start; padding: 16px; cursor: pointer; }
+.add-option b { display: block; font: 600 18px var(--serif); margin-bottom: 2px; }
+.add-option input { position: absolute; inset: 0; opacity: 0; }
+.add-ic { font-size: 26px; line-height: 1; }
+
+.locked-row { display: flex; gap: 10px; overflow-x: auto; padding: 6px 2px 2px; scrollbar-width: none; }
+.locked-row::-webkit-scrollbar { display: none; }
+.locked { position: relative; flex: 0 0 72px; aspect-ratio: 3/4; }
+.locked .ph { display: block; width: 100%; height: 100%; border-radius: 12px; overflow: hidden; background: var(--surface-2); border: 1px solid var(--line); }
+.locked .ph img { width: 100%; height: 100%; object-fit: cover; }
+.locked .x { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); color: var(--bg); font-size: 14px; line-height: 22px; text-align: center; }
+.locked.add { display: grid; place-content: center; text-align: center; border: 1.5px dashed var(--line); border-radius: 12px; color: var(--ink-2); }
+.locked.add span { font-size: 24px; line-height: 1; }
+.locked.add small { font-size: 12px; }
+
+.look-why { margin: 12px 0 0; font-size: 15px; color: var(--ink); }
+.look-tip { margin: 6px 0 0; font-size: 13px; color: var(--ink-2); }
+.link { color: var(--accent); font-weight: 600; }
+.mini-ph { flex: 0 0 56px; width: 56px; height: 72px; border-radius: 10px; overflow: hidden; background: var(--surface-2); }
+.mini-ph img { width: 100%; height: 100%; object-fit: cover; }
+
+.own-drop { aspect-ratio: auto; min-height: 150px; padding: 16px; }
+.own-drop img { position: static; max-height: 280px; width: auto; max-width: 100%; margin: 0 auto; border-radius: 12px; object-fit: contain; }
+.verdict { border-left: 4px solid var(--ink-3); }
+.verdict.warn { border-left-color: var(--warn); }
+.verdict.mid { border-left-color: var(--accent); }
+.verdict.good { border-left-color: var(--good); }
+
+.welcome { text-align: center; padding: 8px 4px 4px; }
+.welcome .art { font: 400 44px/1 var(--serif); color: var(--accent); }
+.how > div { text-align: left; line-height: 1.5; }
+.welcome .how > div { padding: 10px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
