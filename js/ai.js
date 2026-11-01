@@ -13,7 +13,28 @@ import { TYPES, COLORS, PATTERNS, SEASONS, CATEGORIES, typeInfo, colorById, item
 const API = 'https://generativelanguage.googleapis.com/v1beta';
 export const DEFAULT_MODEL = 'gemini-flash-latest';
 
+// When a model is overloaded (503) or hiccups (500), wait briefly, then fall back
+// to steadier Flash models so a busy moment never breaks a scan or a fit.
+const FALLBACKS = ['gemini-flash-latest', 'gemini-2.5-flash'];
 async function call(apiKey, path, body) {
+  const m = path.match(/^models\/([^:]+):generateContent$/);
+  const tries = [path];
+  if (m && body && !body.generationConfig?.responseModalities) {
+    tries.push(path, ...FALLBACKS.filter(f => f !== m[1]).map(f => `models/${f}:generateContent`));
+  } else tries.push(path);
+  let last;
+  for (let i = 0; i < tries.length; i++) {
+    try { return await once(apiKey, tries[i], body); } catch (err) {
+      last = err;
+      if (![500, 503].includes(err.status)) throw err;
+      await new Promise(r => setTimeout(r, 800 * (i + 1)));
+    }
+  }
+  last.message = 'Gemini is very busy right now — try again in a minute.';
+  throw last;
+}
+
+async function once(apiKey, path, body) {
   let res;
   try {
     res = await fetch(`${API}/${path}`, {

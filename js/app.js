@@ -4,6 +4,7 @@ import {
   suggestFor, generateLooks, buildAround, similarOwned, scoreLabel, pctScore, pairKey, currentSeason,
 } from './engine.js';
 import { prepare, thumbOf, cutout, colorIn } from './photo.js';
+import { BUILTIN_KEY } from './config.js';
 
 // ---------------------------------------------------------------- state
 const S = {
@@ -127,7 +128,7 @@ async function loadAll() {
   S.outfits.sort((a, b) => b.created - a.created);
   S.prefs = await db.getPref('pairs', {});
   S.places = await db.getPref('places', []);
-  S.apiKey = await db.getPref('geminiKey', '');
+  S.apiKey = BUILTIN_KEY || (await db.getPref('geminiKey', ''));
   S.aiModel = await db.getPref('aiModel', '');
   S.aiModels = await db.getPref('aiModels', []);
   S.imageModels = await db.getPref('imageModels', []);
@@ -1276,7 +1277,7 @@ function placesSheet() {
 
 // Validate a Gemini key by listing its models, then pick the newest stable Flash.
 async function connectKey(key) {
-  if (!/^AIza[\w-]{20,}$/.test(key)) throw new Error('That does not look like a Gemini API key (it starts with AIza)');
+  if (!/^[\w.-]{30,}$/.test(key)) throw new Error('That does not look like a Gemini API key');
   const { listModels } = await ai();
   const { text, image } = await listModels(key);
   if (!text.length) throw new Error('This key has no Gemini models available');
@@ -1286,25 +1287,25 @@ async function connectKey(key) {
   if (S.studioModel && !image.includes(S.studioModel)) S.studioModel = '';
   if (!S.studioModel && !studioOff) S.studioModel = image[0] || '';
   S.studioBlocked = false;
-  await Promise.all([db.setPref('geminiKey', key), db.setPref('aiModels', text), db.setPref('imageModels', image), db.setPref('aiModel', S.aiModel), db.setPref('studioModel', S.studioModel)]);
+  await Promise.all([db.setPref('geminiKey', key === BUILTIN_KEY ? '' : key), db.setPref('aiModels', text), db.setPref('imageModels', image), db.setPref('aiModel', S.aiModel), db.setPref('studioModel', S.studioModel)]);
 }
 
 function geminiSheet() {
   openSheet(`
     <div class="sheet-head"><h2>Gemini AI</h2><button class="btn sm ghost" data-close>Close</button></div>
-    <p class="muted" style="margin-top:0">Gemini scans your photos, writes detailed descriptions, makes product photos and styles you. It uses <b>your own free key</b>, which is saved only on this phone and sent only to Google.</p>
+    ${BUILTIN_KEY ? '<p class="muted" style="margin-top:0">Gemini scans your photos, writes detailed descriptions, makes product photos and styles you. It\'s built in — nothing to set up.</p>' : `<p class="muted" style="margin-top:0">Gemini scans your photos, writes detailed descriptions, makes product photos and styles you. It uses <b>your own free key</b>, which is saved only on this phone and sent only to Google.</p>
     <ol class="small muted" style="padding-left:20px;margin:0 0 6px">
       <li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> and sign in with Google.</li>
       <li>Tap <b>Create API key</b> and copy it.</li>
       <li>Paste it below.</li>
     </ol>
-    <label class="field"><span>Gemini API key</span><input class="input" id="g-key" type="password" placeholder="AIza…" value="${esc(S.apiKey)}" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+    <label class="field"><span>Gemini API key</span><input class="input" id="g-key" type="password" placeholder="AIza…" value="${esc(S.apiKey)}" autocomplete="off" autocapitalize="off" spellcheck="false"></label>`}
     ${S.aiModels.length ? `
       <label class="field"><span>Thinking model</span><select class="input" id="g-model">${S.aiModels.map(m => `<option ${m === S.aiModel ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></label>
       <label class="field"><span>Studio product photos</span><select class="input" id="g-studio"><option value="">Off · use clean cut-outs</option>${S.imageModels.map(m => `<option ${m === S.studioModel ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></label>
       <p class="small muted" style="margin:6px 0 0">${S.imageModels.length ? 'Studio photos redraw each piece like a shop listing. Some free keys have little or no image quota; when that happens Drape switches to clean cut-outs on its own.' : 'This key has no image model, so Drape makes clean cut-outs on your phone instead.'}</p>` : ''}
     <button class="btn block" id="g-save" style="margin-top:14px">${S.apiKey ? 'Save' : 'Connect'}</button>
-    ${S.apiKey ? '<button class="btn block danger" id="g-del" style="margin-top:8px">Remove key</button>' : ''}
+    ${S.apiKey && !BUILTIN_KEY ? '<button class="btn block danger" id="g-del" style="margin-top:8px">Remove key</button>' : ''}
   `, {
     onMount(sheet, close) {
       $('#g-save', sheet).onclick = async e => {
@@ -1314,7 +1315,7 @@ function geminiSheet() {
           const m = $('#g-model', sheet)?.value, st = $('#g-studio', sheet);
           if (m) S.aiModel = m;
           if (st) { S.studioModel = st.value; await db.setPref('studioOff', !st.value); }
-          await connectKey($('#g-key', sheet).value.trim());
+          await connectKey(BUILTIN_KEY || $('#g-key', sheet).value.trim());
           close(); render(); toast(`Gemini connected · ${S.aiModel}`);
         } catch (err) { toast(err.message, 3500); e.target.textContent = label; }
       };
@@ -1393,11 +1394,11 @@ function welcomeSheet() {
         <div>📍 <b>Find anything.</b> File pieces under Room › Cupboard › Shelf, and every outfit tells you where to grab them.</div>
         <div>🛍 <b>Shop smarter.</b> Snap an item in a store to see whether you already own something like it.</div>
       </div>
-      <button class="btn block accent" id="w-gemini" style="margin-top:22px">Connect Gemini (free)</button>
-      <button class="btn block ghost" data-close style="margin-top:6px">Skip for now</button>
+      ${aiReady() ? '<button class="btn block accent" data-close style="margin-top:22px">Get started</button>' : `<button class="btn block accent" id="w-gemini" style="margin-top:22px">Connect Gemini (free)</button>
+      <button class="btn block ghost" data-close style="margin-top:6px">Skip for now</button>`}
     </div>
   `, {
-    onMount(sheet, close) { $('#w-gemini', sheet).onclick = () => nextSheet(close, geminiSheet); },
+    onMount(sheet, close) { const g = $('#w-gemini', sheet); if (g) g.onclick = () => nextSheet(close, geminiSheet); },
     onClose: () => db.setPref('onboarded', true),
   });
 }
@@ -1445,6 +1446,14 @@ async function loadSample() {
 (async function boot() {
   try { const t = sessionStorage.getItem('drape.tab'); if (t && TABS[t]) S.tab = t; } catch { /* ignore */ }
   await loadAll();
+  // a private setup link (…/drape/#gemini=KEY) saves a key on this device without it ever being in the code
+  const linkKey = new URLSearchParams(location.hash.slice(1)).get('gemini');
+  if (linkKey) {
+    history.replaceState(null, '', location.pathname + location.search);
+    try { await connectKey(linkKey.trim()); toast(`Gemini connected · ${S.aiModel}`); } catch (err) { toast(err.message, 3500); }
+  } else if (S.apiKey && !S.aiModels.length) {
+    connectKey(S.apiKey).then(render).catch(() => {}); // built-in key: pick models quietly on first launch
+  }
   render();
   refreshWeatherIfStale();
   navigator.storage?.persist?.();
