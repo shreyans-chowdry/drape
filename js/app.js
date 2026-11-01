@@ -242,7 +242,12 @@ async function makeStudio(item, { quiet = true } = {}) {
   } catch (e) {
     if ([403, 404, 429].includes(e.status) || /not available|quota|not allowed/i.test(e.message)) {
       S.studioBlocked = true;
-      toast(e.billing ? 'Studio photos need billing turned on for the Gemini key — using clean cut-outs' : 'Studio photos are not available on this key right now — using clean cut-outs', 4000);
+      if (e.billing) {
+        // a free key will never get image quota: switch studio off for good (it can be re-enabled in Me → Gemini AI)
+        S.studioModel = '';
+        db.setPref('studioModel', ''); db.setPref('studioOff', true);
+      }
+      toast(e.billing ? 'Studio photos need billing on the Gemini key — using clean cut-outs instead' : 'Studio photos are not available on this key right now — using clean cut-outs', 4000);
     } else if (!quiet) toast(e.message);
     return false;
   }
@@ -600,7 +605,7 @@ function addSheet() {
     <div class="sheet-head"><h2>Add clothes</h2><button class="btn sm ghost" data-close>Cancel</button></div>
     <label class="add-option card">
       <span class="add-ic">📷</span>
-      <span class="grow"><b id="add-label">Scan photos</b><span class="small muted" style="display:block">Take a photo, or pick several from your library. ${aiReady() ? 'Gemini detects each piece — even several in one photo — names it, describes it and makes a clean product image.' : 'Connect Gemini in Me for automatic detection.'}</span></span>
+      <span class="grow"><b id="add-label">Scan photos</b><span class="small muted" style="display:block">Take a photo, or pick several from your library. For the cleanest product shot, lay the piece flat on a plain floor or bed and shoot from straight above. ${aiReady() ? 'Gemini detects each piece — even several in one photo — names it, describes it and makes a clean product image.' : 'Connect Gemini in Me for automatic detection.'}</span></span>
       <input type="file" accept="image/*" multiple id="add-files">
     </label>
     ${placeFieldHTML('')}
