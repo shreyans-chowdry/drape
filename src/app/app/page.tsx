@@ -1,5 +1,4 @@
 'use client';
-import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { CloudSun, Droplets, MapPin, RefreshCw, Wind } from 'lucide-react';
 import { currentSeason, generateLooks, OCCASIONS, pctScore } from '@/lib/engine';
@@ -26,7 +25,7 @@ export default function TodayPage() {
     sb.from('wear_history').select('item_ids').gte('worn_on', since).then(({ data }) => setRecent((data ?? []).map(r => r.item_ids)));
   }, [sb]);
 
-  const favColours = ((profile?.preferences as { colours?: string[] } | null)?.colours ?? []);
+  const favColours = useMemo(() => (profile?.preferences as { colours?: string[] } | null)?.colours ?? [], [profile]);
   const looks = useMemo(() => {
     const pool = items.filter(isAvailable).map(toEngine);
     const ctx = { occasion, tempC: weather?.tempC ?? null, rain: weather?.rain, humidity: weather?.humidity, wind: weather?.windKph, season: currentSeason(new Date(), weather?.tempC, weather?.rain) };

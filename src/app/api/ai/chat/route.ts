@@ -32,7 +32,8 @@ export const POST = route(z.object({
   const items = await wardrobeRows(userId, wid);
 
   const answer = await withCredit(userId, 'chat', convId!, async () =>
-    chatReply(userId, { items, history, context: body.context, profile: await profileText(userId), photo }));
+    chatReply(userId, { items, history, context: body.context, profile: await profileText(userId), photo }))
+    .finally(() => { if (body.imagePath) db.storage.from('temp').remove([body.imagePath]); });
 
   await db.from('chat_messages').insert([
     { conversation_id: convId!, user_id: userId, role: 'user', content: body.message },

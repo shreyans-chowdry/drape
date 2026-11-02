@@ -75,7 +75,7 @@ async function once(model: string, body: unknown): Promise<GeminiResponse> {
     const msg: string = data?.error?.message ?? res.statusText;
     // Never surface Google's raw message (it can include project details) to users.
     const code = res.status === 429 ? (/limit: 0\b/.test(msg) ? 'ai_no_quota' : 'ai_rate_limited') : res.status === 404 ? 'ai_model_missing' : 'ai_upstream';
-    const err = new AIError(code === 'ai_rate_limited' ? 'The AI is busy. Try again in a minute.' : 'The AI request failed.', res.status, code);
+    const err = new AIError(code === 'ai_rate_limited' ? 'The AI is busy. Try again in a minute.' : code === 'ai_no_quota' ? 'This AI feature isn’t available right now. No credit was used.' : 'The AI request failed. No credit was used.', res.status === 429 && code === 'ai_no_quota' ? 503 : res.status, code);
     console.error(`[gemini] ${model} ${res.status} ${msg.slice(0, 200)}`);
     throw err;
   }

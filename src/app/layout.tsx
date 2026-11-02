@@ -14,8 +14,8 @@ export const metadata: Metadata = {
   manifest: '/manifest.webmanifest',
   appleWebApp: { capable: true, title: BRAND.name, statusBarStyle: 'default' },
   icons: { icon: [{ url: '/icons/icon-192.png', sizes: '192x192' }], apple: '/icons/apple-touch-icon.png' },
-  openGraph: { type: 'website', siteName: BRAND.name, title: `${BRAND.name} — ${BRAND.tagline}`, description: BRAND.description, images: ['/og.png'] },
-  twitter: { card: 'summary_large_image', title: BRAND.name, description: BRAND.description, images: ['/og.png'] },
+  openGraph: { type: 'website', siteName: BRAND.name, title: `${BRAND.name} — ${BRAND.tagline}`, description: BRAND.description },
+  twitter: { card: 'summary_large_image', title: BRAND.name, description: BRAND.description },
   alternates: { canonical: '/' },
 };
 

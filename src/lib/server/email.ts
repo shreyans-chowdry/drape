@@ -15,7 +15,7 @@ export function layout({ heading, body, cta }: Omit<Mail, 'subject'>) {
 <tr><td style="padding:8px 32px 0;font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1.25">${heading}</td></tr>
 <tr><td style="padding:16px 32px 8px;font-size:15px;line-height:1.6;color:#4a453d">${body}</td></tr>
 ${cta ? `<tr><td style="padding:16px 32px 8px"><a href="${cta.href}" style="display:inline-block;background:#1c1a17;color:#fffdf9;text-decoration:none;padding:12px 22px;border-radius:999px;font-size:15px">${cta.label}</a></td></tr>` : ''}
-<tr><td style="padding:24px 32px 32px;font-size:12px;color:#8a8378">You're receiving this because you have a ${BRAND.name} account. Questions? Reply to ${BRAND.supportEmail}.</td></tr>
+<tr><td style="padding:24px 32px 32px;font-size:12px;color:#8a8378">You're receiving this because you have a ${BRAND.name} account. Questions? ${BRAND.supportEmail ? `Reply to ${BRAND.supportEmail}` : `Use the contact form at ${BRAND.url}/contact`}.</td></tr>
 </table></td></tr></table></body></html>`;
 }
 
@@ -60,7 +60,7 @@ export async function sendEmail(to: string, mail: Mail) {
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from, to, subject: mail.subject, html: layout(mail), reply_to: BRAND.supportEmail }),
+    body: JSON.stringify({ from, to, subject: mail.subject, html: layout(mail), ...(BRAND.supportEmail ? { reply_to: BRAND.supportEmail } : {}) }),
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) console.error('[email] resend', res.status);

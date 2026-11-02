@@ -36,6 +36,6 @@ export const POST = route(z.object({ path: z.string().min(10).max(300), wardrobe
       try { const f = await readOwnFile(userId, im.bucket, im.path); thumbs.push({ id, ...f }); } catch { /* skip missing */ }
     }
     return ownIt(userId, bytes, mime, sameCat.length ? sameCat : items, thumbs);
-  });
+  }).finally(() => supabaseAdmin().storage.from('temp').remove([body.path]));
   return json(result);
 });

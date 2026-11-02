@@ -49,3 +49,8 @@ export const costPerWear = (i: Pick<ItemRow, 'purchase_price' | 'wear_count'>) =
   i.purchase_price != null ? Number(i.purchase_price) / Math.max(1, i.wear_count) : null;
 
 export const inr = (n: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: n < 100 ? 2 : 0 }).format(n);
+
+export const fmtRange = (a: string, b: string) => {
+  const o: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
+  return a === b ? new Date(a).toLocaleDateString('en-IN', o) : `${new Date(a).toLocaleDateString('en-IN', o)} – ${new Date(b).toLocaleDateString('en-IN', o)}`;
+};

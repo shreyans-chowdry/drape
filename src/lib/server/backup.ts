@@ -39,7 +39,7 @@ const CSV_COLS = ['name', 'category', 'subcategory', 'brand', 'color', 'color2',
 export function toCsv(rows: Record<string, unknown>[]) {
   const cell = (v: unknown) => {
     const s = Array.isArray(v) ? v.join('; ') : v == null ? '' : String(v);
-    const safe = /^[=+\-@]/.test(s) ? `'${s}` : s; // no spreadsheet formula injection
+    const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s; // no spreadsheet formula injection
     return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
   };
   return [CSV_COLS.join(','), ...rows.map(r => CSV_COLS.map(c => cell(r[c])).join(','))].join('\n');
