@@ -1,6 +1,10 @@
 import Link from 'next/link';
 import { BRAND } from '@/lib/brand';
 import { currentUser } from '@/lib/supabase/server';
+import { Motion } from '@/components/site/motion';
+
+// Runs before first paint so revealed content starts hidden instead of flashing in and out.
+const MOTION_BOOT = `if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElement.classList.add('motion')`;
 
 export default async function SiteLayout({ children }: { children: React.ReactNode }) {
   const user = await currentUser();
@@ -26,6 +30,8 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
           </div>
         </nav>
       </header>
+      <script dangerouslySetInnerHTML={{ __html: MOTION_BOOT }} />
+      <Motion />
       <main id="main">{children}</main>
       <footer className="mt-24 border-t border-line">
         <div className="mx-auto grid max-w-6xl gap-8 px-4 py-12 text-sm sm:grid-cols-2 sm:px-6 lg:grid-cols-4">

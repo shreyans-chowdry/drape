@@ -89,7 +89,7 @@ export default function WardrobePage() {
       ) : !list.length ? (
         <p className="py-16 text-center text-muted">Nothing matches those filters.</p>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        <div className="stagger grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {list.map(i => (
             <ItemTile key={i.id} item={i} selected={selecting ? selected.includes(i.id) : undefined}
               onSelect={selecting ? () => setSelected(s => (s.includes(i.id) ? s.filter(x => x !== i.id) : [...s, i.id])) : undefined}>

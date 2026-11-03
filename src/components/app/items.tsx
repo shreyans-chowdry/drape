@@ -53,7 +53,7 @@ export function ItemTile({ item, href, selected, onSelect, children }: { item: I
       </div>
     </>
   );
-  const cls = cx('group block overflow-hidden rounded-2xl border bg-card text-left transition hover:shadow-soft', selected ? 'border-ink' : 'border-line');
+  const cls = cx('group block overflow-hidden rounded-2xl border bg-card text-left transition duration-300 hover:-translate-y-0.5 hover:shadow-soft active:scale-[0.98]', selected ? 'border-ink' : 'border-line');
   if (onSelect) return <button type="button" onClick={onSelect} className={cls} aria-pressed={selected}>{body}</button>;
   return <Link href={href ?? `/app/wardrobe/${item.id}`} className={cls}>{body}</Link>;
 }
@@ -123,7 +123,7 @@ export function OutfitCard({ look, onWear, onSave, saved, onSwap, onPlan, onWher
 
 /** Grid that keeps outfit cards aligned: 1 column on phones, 2 on tablets, 3 on desktops. */
 export function OutfitGrid({ children }: { children: ReactNode }) {
-  return <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-5">{children}</div>;
+  return <div className="stagger grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-5">{children}</div>;
 }
 
 export function ItemPicker({ open, onClose, items, title = 'Choose a piece', selected = [], onPick, multi, filter }: {
