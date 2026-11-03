@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { CloudSun, Droplets, MapPin, RefreshCw, Wind } from 'lucide-react';
 import { currentSeason, generateLooks, OCCASIONS, pctScore } from '@/lib/engine';
@@ -8,11 +9,15 @@ import { OutfitCard, OutfitGrid, SwapSheet, WhereSheet } from '@/components/app/
 import { PlanSheet } from '@/components/app/plan';
 import { useStore } from '@/components/app/store';
 
+const SHOWN_KEY = 'drape.today.shown';
+
 export default function TodayPage() {
   const { items, weather, profile, loading, sb, logWear, saveOutfit, outfits, setOutfitFav } = useStore();
   const toast = useToast();
   const [occasion, setOccasion] = useState('casual');
-  const [seed, setSeed] = useState(0);
+  // A new starting point each day; "New ideas" moves on from there.
+  const [seed, setSeed] = useState(() => Math.floor(Date.now() / 864e5));
+  const [shown, setShown] = useState<string[]>([]);
   const [overrides, setOverrides] = useState<Record<string, Item[]>>({});
   const [swap, setSwap] = useState<{ key: string; piece: Item } | null>(null);
   const [where, setWhere] = useState<Item[] | null>(null);
@@ -23,6 +28,7 @@ export default function TodayPage() {
   useEffect(() => {
     const since = new Date(Date.now() - 14 * 864e5).toLocaleDateString('en-CA');
     sb.from('wear_history').select('item_ids').gte('worn_on', since).then(({ data }) => setRecent((data ?? []).map(r => r.item_ids)));
+    try { setShown(JSON.parse(localStorage.getItem(SHOWN_KEY) ?? '[]')); } catch { /* storage unavailable */ }
   }, [sb]);
 
   const favColours = useMemo(() => (profile?.preferences as { colours?: string[] } | null)?.colours ?? [], [profile]);
@@ -30,22 +36,35 @@ export default function TodayPage() {
     const pool = items.filter(isAvailable).map(toEngine);
     const ctx = { occasion, tempC: weather?.tempC ?? null, rain: weather?.rain, humidity: weather?.humidity, wind: weather?.windKph, season: currentSeason(new Date(), weather?.tempC, weather?.rain) };
     const wornCombos = new Set(recent.map(ids => [...ids].sort().join('|')));
-    return generateLooks(pool, ctx, {}, { count: 8, seed })
+    const recentDays = new Date(Date.now() - 3 * 864e5).toLocaleDateString('en-CA');
+    const avoid = new Set([...shown, ...recent.slice(-3).flat(), ...items.filter(i => i.last_worn_on && i.last_worn_on >= recentDays).map(i => i.id)]);
+    return generateLooks(pool, ctx, {}, { count: 8, seed, avoid })
       // avoid repeating a combination worn in the last two weeks
       .filter(l => !wornCombos.has(l.pieces.filter(p => p.category === 'top' || p.category === 'bottom').map(p => p.id).sort().join('|')) || l.pieces.length < 2)
       .map(l => ({ ...l, s: l.s + l.pieces.filter(p => favColours.includes(p.color ?? '')).length * 0.03 }))
       .sort((a, b) => b.s - a.s)
       .slice(0, 3)
       .map((l, i) => ({ key: `${seed}-${i}`, pieces: l.pieces as Item[], reasons: l.reasons, score: pctScore(l.s) }));
-  }, [items, occasion, weather, seed, recent, favColours]);
+  }, [items, occasion, weather, seed, recent, favColours, shown]);
+
+  // Remember the tops shown today so tomorrow (and "New ideas") leads with something else.
+  useEffect(() => {
+    const tops = looks.flatMap(l => l.pieces.filter(p => p.category === 'top' || p.category === 'onepiece').map(p => p.id));
+    if (!tops.length) return;
+    try {
+      const prev: string[] = JSON.parse(localStorage.getItem(SHOWN_KEY) ?? '[]');
+      localStorage.setItem(SHOWN_KEY, JSON.stringify([...new Set([...tops, ...prev])].slice(0, 12)));
+    } catch { /* storage unavailable */ }
+  }, [looks]);
 
   const today = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
-  const hasBasics = items.some(i => i.category === 'top' || i.category === 'onepiece') && items.some(i => i.category === 'bottom' || i.category === 'onepiece');
+  const hasBasics = items.some(i => i.category === 'top' || i.category === 'onepiece');
+  const noBottoms = hasBasics && !items.some(i => i.category === 'bottom' || i.category === 'onepiece');
 
   return (
     <>
       <PageHeader eyebrow={today} title={`Good ${greeting()}, ${profile?.display_name?.split(' ')[0] ?? 'there'}`}
-        actions={hasBasics ? <Button variant="secondary" onClick={() => { setSeed(s => s + 1); setOverrides({}); }}><RefreshCw className="size-4" /> New ideas</Button> : undefined}>
+        actions={hasBasics ? <Button variant="secondary" onClick={() => { setShown(s => [...new Set([...looks.flatMap(l => l.pieces.map(p => p.id)), ...s])].slice(0, 16)); setSeed(s => s + 1); setOverrides({}); }}><RefreshCw className="size-4" /> New ideas</Button> : undefined}>
         Three outfits from your wardrobe for today.
       </PageHeader>
 
@@ -63,6 +82,12 @@ export default function TodayPage() {
           A top, a bottom and a pair of shoes is enough for your first outfit. Photograph them and Drape does the rest.
         </Empty>
       ) : (
+        <>
+        {noBottoms && (
+          <p className="mb-4 rounded-xl bg-warn-soft px-4 py-3 text-sm text-warn">
+            You haven’t added any trousers, jeans or shorts yet, so these looks are top, shoes and layers only. <Link href="/app/add" className="font-medium underline">Add your bottoms</Link> for complete outfits.
+          </p>
+        )}
         <OutfitGrid>
           {looks.map(l => {
             const pieces = overrides[l.key] ?? l.pieces;
@@ -87,6 +112,7 @@ export default function TodayPage() {
             );
           })}
         </OutfitGrid>
+        </>
       )}
 
       <SwapSheet piece={swap?.piece ?? null} look={swap ? overrides[swap.key] ?? looks.find(l => l.key === swap.key)?.pieces ?? [] : []} items={items}

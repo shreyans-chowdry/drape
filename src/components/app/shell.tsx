@@ -8,12 +8,13 @@ import { cx, Sheet } from '@/components/ui';
 import { NAV, MOBILE_TABS } from './nav';
 import { useStore } from './store';
 import { Tour } from './tour';
+import { AccountButton, AccountMenu } from './account-menu';
 
 const active = (path: string, href: string) => (href === '/app' ? path === '/app' : path === href || path.startsWith(href + '/'));
 
 export function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
-  const { wardrobes, wardrobeId, setWardrobe, quotas, profile } = useStore();
+  const { wardrobes, wardrobeId, setWardrobe, quotas } = useStore();
   const [more, setMore] = useState(false);
   const current = wardrobes.find(w => w.id === wardrobeId);
 
@@ -47,6 +48,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <div className="mt-1">{quotas.studio.remaining} studio · {quotas.styling.remaining} styling left</div>
           </Link>
         )}
+        <AccountMenu />
       </aside>
 
       <div className="min-w-0">
@@ -60,9 +62,7 @@ export function Shell({ children }: { children: ReactNode }) {
                   {wardrobes.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                 </select>
               )}
-              <Link href="/app/profile" aria-label="Profile" className="flex size-8 items-center justify-center rounded-full bg-sunk text-sm font-medium">
-                {(profile?.display_name ?? '?').slice(0, 1).toUpperCase()}
-              </Link>
+              <AccountButton />
             </div>
           </div>
         </header>

@@ -1,6 +1,7 @@
 import 'server-only';
-import { CATEGORIES, COLORS, OCCASIONS, PATTERNS, SEASONS, TYPES, type Category } from '@/lib/engine';
+import { CATEGORIES, COLORS, forWeather, lookWeatherOk, OCCASIONS, PATTERNS, SEASONS, TYPES, type Category, type EngineItem } from '@/lib/engine';
 import { AIError, generate, imageOf, imagePart, jsonOf, S, settings } from './gemini';
+import { climateNote, completeLook, quickDay, type Climate, type TripDay, type TripLook } from '@/lib/trip';
 
 // Every Gemini-powered feature. Each one is grounded in the owner's saved
 // metadata (never the whole photo library), uses structured JSON output, and
@@ -33,6 +34,28 @@ const line = (i: WardrobeRow) => [
 ].filter(Boolean).join(' · ');
 
 export const wardrobeText = (items: WardrobeRow[]) => items.map(line).join('\n');
+
+export const engineOf = (i: WardrobeRow): EngineItem & WardrobeRow => ({ ...i, category: i.category as Category, type: i.subcategory });
+
+/** Drop pieces that can't be worn in this weather before the model ever sees them. */
+export function weatherPool(items: WardrobeRow[], c?: Climate) {
+  return c?.tempC == null ? items : forWeather(items.map(engineOf), c.tempC, c.rain);
+}
+
+/** Remove pieces from a model-built look that break the weather rules (e.g. a sweatshirt under a jacket at 28°). */
+export function fitLookToWeather(ids: string[], items: WardrobeRow[], c?: Climate, keep: string[] = []) {
+  if (c?.tempC == null) return ids;
+  const byId = new Map(items.map(i => [i.id, engineOf(i)]));
+  let pieces = ids.map(id => byId.get(id)).filter((x): x is EngineItem & WardrobeRow => !!x);
+  pieces = pieces.filter(p => keep.includes(p.id) || lookWeatherOk([p], c.tempC, c.rain));
+  if (!lookWeatherOk(pieces, c.tempC, c.rain)) pieces = pieces.filter(p => p.category !== 'outer' || keep.includes(p.id));
+  return pieces.map(p => p.id);
+}
+
+const WEATHER_RULE = (c?: Climate) => c?.tempC == null ? '' : `It is ${Math.round(c.tempC)}°C${c.rain ? ' with rain' : ''}. Dress for that: ${
+  c.tempC >= 24 ? 'light breathable pieces only — no hoodies, sweatshirts, knits or jackets' :
+  c.tempC >= 17 ? 'one light layer at most — never a warm top (hoodie/sweatshirt/knit) under a jacket' :
+  c.tempC >= 10 ? 'a warm top or a light top with a jacket' : 'warm layers'}.`;
 
 /** Map short ids back to real ones, dropping anything the model made up. */
 function resolveIds(ids: string[], items: WardrobeRow[]) {
@@ -225,16 +248,20 @@ Every look needs footwear if the wardrobe has any. Respect locked pieces: includ
 
 export async function styleLooks(userId: string, args: {
   items: WardrobeRow[]; locked: string[]; need: string[]; occasion: string; brief: string; weather: string; profile: string; count?: number;
+  climate?: Climate; avoid?: string[];
 }) {
   const s = await settings();
-  const pool = relevantItems(args.items, `${args.brief} ${args.occasion}`, 80, args.locked);
+  const lockedRows = args.items.filter(i => args.locked.includes(i.id));
+  const pool = relevantItems([...new Set([...weatherPool(args.items, args.climate), ...lockedRows])], `${args.brief} ${args.occasion}`, 80, args.locked);
+  const avoid = pool.filter(i => args.avoid?.includes(i.id) && !args.locked.includes(i.id));
   const locked = pool.filter(i => args.locked.includes(i.id));
   const prompt = [
-    `Occasion: ${args.occasion || 'any'}`, `Brief: ${args.brief || '(none)'}`, `Weather: ${args.weather || 'unknown'}`,
+    `Occasion: ${args.occasion || 'any'}`, `Brief: ${args.brief || '(none)'}`, `Weather: ${args.weather || 'unknown'}`, WEATHER_RULE(args.climate),
+    avoid.length ? `Already suggested recently — build around different tops and bottoms where possible: ${avoid.map(i => `[${sid(i.id)}]`).join(' ')}` : '',
     args.profile ? `About the person: ${args.profile}` : '',
     locked.length ? `LOCKED pieces: ${locked.map(i => `[${sid(i.id)}] ${i.name}`).join(', ')}` : '',
     args.need.length ? `Fill these slots: ${args.need.join(', ')}` : 'Build complete outfits.',
-    `Give ${args.count ?? 3} looks.`,
+    `Give ${args.count ?? 3} looks. Each look must use a different top (or one-piece) and, where the wardrobe allows, a different bottom.`,
   ].filter(Boolean).join('\n');
   const { data } = await generate([s.models.text, s.models.reasoning], {
     systemInstruction: { parts: [{ text: STYLE_RULES }, { text: `Wardrobe:\n${wardrobeText(pool)}` }] },
@@ -243,7 +270,7 @@ export async function styleLooks(userId: string, args: {
   }, { userId, feature: 'styling', operation: 'outfits' });
   const out = jsonOf<{ looks: AILook[]; missing?: string }>(data);
   const looks = (out.looks ?? [])
-    .map(l => ({ ...l, pieceIds: resolveIds([...args.locked.map(sid), ...l.pieceIds], pool) }))
+    .map(l => ({ ...l, pieceIds: fitLookToWeather(resolveIds([...args.locked.map(sid), ...l.pieceIds], pool), pool, args.climate, args.locked) }))
     .filter(l => l.pieceIds.length >= 2);
   if (!looks.length) throw new AIError('The stylist could not build a look from this wardrobe. Add a few more pieces and try again.', 422, 'ai_no_looks');
   return { looks, missing: out.missing || '' };
@@ -327,40 +354,89 @@ export async function chatReply(userId: string, args: {
 }
 
 // ───────────────────────────────────────────── trips
+const LOOK = S.obj({ title: S.str('Short name for the look'), pieceIds: S.arr(S.str()), why: S.str('One sentence: why it suits that day and its weather') });
 const TRIP_SCHEMA = S.obj({
   days: S.arr(S.obj({
     date: S.str('YYYY-MM-DD'),
-    plan: S.str('What the day looks like, a few words'),
-    day: S.obj({ title: S.str(), pieceIds: S.arr(S.str()), why: S.str() }),
+    plan: S.str('What the day looks like in under 10 words; reuse the itinerary note if one is given'),
+    day: LOOK,
     evening: S.obj({ title: S.str(), pieceIds: S.arr(S.str()), why: S.str() }, ['title', 'pieceIds', 'why']),
   }, ['date', 'plan', 'day'])),
-  packing: S.arr(S.str(), 'ids of every owned piece to pack, deduplicated'),
-  remember: S.arr(S.str(), 'Non-clothing things not to forget for this trip and weather'),
+  remember: S.arr(S.str(), 'Non-clothing things not to forget for these places and this weather'),
   laundry: S.str('Re-wear or laundry advice for this trip length'),
-  optionalShopping: S.arr(S.str(), 'Only if a real gap exists: items worth buying, clearly optional'),
+  optionalShopping: S.arr(S.str(), 'Only if a real gap exists for this weather: items worth buying, clearly optional'),
 });
 
-export type TripPlan = {
-  days: { date: string; plan: string; day: { title: string; pieceIds: string[]; why: string }; evening?: { title: string; pieceIds: string[]; why: string } }[];
-  packing: string[]; remember: string[]; laundry: string; optionalShopping: string[];
-};
+export type TripDayInput = { date: string; place: string; note: string; weather: string; climate: Climate; skipped?: boolean };
 
-export async function planTrip(userId: string, args: { items: WardrobeRow[]; destination: string; dates: string[]; activities: string; preferences: string; forecast: string; profile: string }) {
+export async function planTrip(userId: string, args: { items: WardrobeRow[]; days: TripDayInput[]; mustPack: string[]; activities: string; preferences: string; profile: string }) {
   const s = await settings();
-  const pool = relevantItems(args.items, `${args.activities} ${args.preferences} ${args.forecast}`, 90);
-  const { data } = await generate([s.models.reasoning, s.models.text], {
-    systemInstruction: { parts: [{ text: STYLE_RULES + '\nPlan a capsule: re-use versatile pieces across days so the bag stays light. Add an evening look only when the activities call for one.' }, { text: `Wardrobe:\n${wardrobeText(pool)}` }] },
+  const active = args.days.filter(d => !d.skipped);
+  const pool = relevantItems(args.items, `${args.activities} ${args.preferences} ${active.map(d => d.note).join(' ')}`, 90, args.mustPack);
+  const must = pool.filter(i => args.mustPack.includes(i.id));
+  const { data } = await generate([s.models.text, s.models.reasoning], {
+    systemInstruction: { parts: [{ text: STYLE_RULES + `
+Plan a travel capsule. Each day has its own place and weather: dress for THAT day, not the trip average. A hot city day and a cold mountain day need different clothes.
+Re-use bottoms, shoes and layers across days so the bag stays light, but give each day a different top while unworn tops remain. Add an evening look only when that day's plans call for one.` }, { text: `Wardrobe:\n${wardrobeText(pool)}` }] },
     contents: [{ role: 'user', parts: [{ text: [
-      `Trip to ${args.destination}, ${args.dates.length} day(s): ${args.dates.join(', ')}`,
-      `Forecast: ${args.forecast || 'unknown'}`, `Activities: ${args.activities || 'general sightseeing'}`,
-      `Preferences: ${args.preferences || 'none'}`, args.profile ? `About the person: ${args.profile}` : '',
-      'Give one entry per date.',
+      `Trip: ${[...new Set(active.map(d => d.place))].join(' → ')}, ${active.length} day(s).`,
+      'Days (date · place · weather · plans · rule):',
+      ...active.map(d => `${d.date} · ${d.place} · ${d.weather || 'weather unknown'} · ${d.note || 'free day'} · ${climateNote(d.climate) || 'dress for the season'}`),
+      `Activities overall: ${args.activities || 'general sightseeing'}`,
+      `Preferences: ${args.preferences || 'none'}`,
+      must.length ? `MUST PACK (use each on at least one suitable day): ${must.map(i => `[${sid(i.id)}] ${i.name}`).join(', ')}` : '',
+      args.profile ? `About the person: ${args.profile}` : '',
+      'Give exactly one entry per listed date.',
     ].filter(Boolean).join('\n') }] }],
-    generationConfig: { responseMimeType: 'application/json', responseSchema: TRIP_SCHEMA, maxOutputTokens: 5000 },
+    generationConfig: { responseMimeType: 'application/json', responseSchema: TRIP_SCHEMA, maxOutputTokens: 6000 },
   }, { userId, feature: 'trip', operation: 'plan' });
-  const out = jsonOf<TripPlan>(data);
-  const fix = (o?: { title: string; pieceIds: string[]; why: string }) => (o ? { ...o, pieceIds: resolveIds(o.pieceIds ?? [], pool) } : undefined);
-  out.days = (out.days ?? []).map(d => ({ ...d, day: fix(d.day)!, evening: d.evening?.pieceIds?.length ? fix(d.evening) : undefined }));
-  out.packing = resolveIds([...(out.packing ?? []), ...out.days.flatMap(d => [...d.day.pieceIds, ...(d.evening?.pieceIds ?? [])].map(sid))], pool);
-  return out;
+  const out = jsonOf<{ days: { date: string; plan: string; day: TripLook; evening?: TripLook }[]; remember: string[]; laundry: string; optionalShopping: string[] }>(data);
+  const engine = pool.map(engineOf);
+  const used = new Set<string>();
+  const days: TripDay[] = args.days.map(d => {
+    const ai = (out.days ?? []).find(x => x.date === d.date);
+    const base: TripDay = { date: d.date, place: d.place, plan: d.note || ai?.plan || '', skipped: d.skipped };
+    if (d.skipped) return base;
+    const fix = (l?: TripLook) => l && { ...l, pieceIds: completeLook(resolveIds(l.pieceIds ?? [], pool), engine, d.climate, args.mustPack, used) };
+    const day = fix(ai?.day) ?? quickDay(engine, d.climate, new Map([...used].map(id => [id, 1])));
+    day?.pieceIds.forEach(id => { if (/^(top|onepiece)$/.test(engineOf(pool.find(p => p.id === id)!).category)) used.add(id); });
+    const evening = ai?.evening?.pieceIds?.length ? fix(ai.evening) : undefined;
+    return { ...base, day, evening };
+  });
+  return { days, remember: out.remember ?? [], laundry: out.laundry ?? '', optionalShopping: out.optionalShopping ?? [] };
+}
+
+// ───────────────────────────────────────────── itinerary reading
+const ITINERARY_SCHEMA = S.obj({
+  title: S.str('Short trip name, e.g. "Japan: Osaka, Hakone, Tokyo"'),
+  stops: S.arr(S.obj({
+    place: S.str('City or area, specific enough to look up the weather, e.g. "Hakone, Japan"'),
+    start: S.str('YYYY-MM-DD, first day there'),
+    end: S.str('YYYY-MM-DD, last day there'),
+    note: S.str('Main plans there in under 10 words'),
+  }), 'In travel order'),
+  days: S.arr(S.obj({ date: S.str('YYYY-MM-DD'), note: S.str('That day in under 12 words, e.g. "Ryokan, onsen, Lake Ashi cruise"') })),
+  hadDates: S.bool('false if the itinerary gives no dates and you numbered the days from the start date'),
+});
+
+export type Itinerary = { title: string; stops: { place: string; start: string; end: string; note: string }[]; days: { date: string; note: string }[]; hadDates: boolean };
+
+/** Turn a typed, pasted, photographed or PDF itinerary into stops and day notes. */
+export async function readItinerary(userId: string, input: { text?: string; file?: { bytes: Buffer; mime: string }; startHint: string; today: string }): Promise<Itinerary> {
+  const s = await settings();
+  const parts: Record<string, unknown>[] = [];
+  if (input.file) parts.push(imagePart(input.file.bytes, input.file.mime));
+  if (input.text) parts.push({ text: `Itinerary:\n${input.text}` });
+  parts.push({ text: `Today is ${input.today}. Read the itinerary and list where the traveller is on each date.
+If dates lack a year, use the next occurrence after today. If there are no dates at all, start on ${input.startHint} and number the days in order.
+Use only places and plans written in the itinerary; never invent stops.` });
+  const { data } = await generate([s.models.text, s.models.reasoning], {
+    contents: [{ role: 'user', parts }],
+    generationConfig: { responseMimeType: 'application/json', responseSchema: ITINERARY_SCHEMA, maxOutputTokens: 3000 },
+  }, { userId, feature: 'trip', operation: 'itinerary' });
+  const out = jsonOf<Itinerary>(data);
+  const iso = /^\d{4}-\d{2}-\d{2}$/;
+  const stops = (out.stops ?? []).filter(x => x.place?.trim() && iso.test(x.start) && iso.test(x.end)).map(x => (x.end < x.start ? { ...x, end: x.start } : x)).slice(0, 8);
+  if (!stops.length) throw new AIError('Couldn’t find places and dates in that itinerary. Add them by hand below.', 422, 'ai_no_itinerary');
+  return { title: out.title ?? '', stops, days: (out.days ?? []).filter(d => iso.test(d.date) && d.note?.trim()).slice(0, 31), hadDates: out.hadDates !== false };
 }

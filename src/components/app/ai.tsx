@@ -26,7 +26,8 @@ export function QuotaNote({ kind }: { kind: Kind }) {
 
 export function aiErrorText(e: unknown) {
   if (e instanceof ApiError) return e.message;
-  return 'Something went wrong. No credit was used — please try again.';
+  // The request never got an answer, so we can't know what happened on the server.
+  return 'Couldn’t reach Drape. Check your connection and try again.';
 }
 export const isQuotaError = (e: unknown) => e instanceof ApiError && (e.code === 'quota_exceeded' || e.status === 402);
 

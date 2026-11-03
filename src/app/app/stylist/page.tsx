@@ -31,7 +31,10 @@ export default function StylistPage() {
   const ask = async () => {
     setBusy(true); setOffline(false);
     try {
-      const r = await api<{ looks: AILook[]; missing: string }>('/api/ai/style', { wardrobeId, occasion, brief, lockedIds: locked, need, weather: weatherText(weather) });
+      const r = await api<{ looks: AILook[]; missing: string }>('/api/ai/style', {
+        wardrobeId, occasion, brief, lockedIds: locked, need, weather: weatherText(weather),
+        tempC: weather?.tempC ?? null, rain: !!weather?.rain, avoidIds: [...new Set(looks.flatMap(l => l.pieces.map(p => p.id)))].slice(0, 30),
+      });
       setLooks(r.looks.map((l, i) => ({ key: `${round}-${i}`, title: l.title, why: l.why, tip: l.tip, pieces: l.pieceIds.map(byId).filter(Boolean) as Item[], badges: [l.occasionFit, l.weatherFit].filter(Boolean) })).filter(l => l.pieces.length >= 2));
       setMissing(r.missing);
     } catch (e) {
@@ -44,7 +47,7 @@ export default function StylistPage() {
   const quick = () => {
     const pool = available.map(toEngine), ctx = weatherCtx(weather, occasion);
     const lockedItems = pool.filter(p => locked.includes(p.id));
-    const res = lockedItems.length ? buildAround(lockedItems, need.length ? need : ['bottom', 'top', 'shoes'], pool, ctx) : generateLooks(pool, ctx, {}, { count: 3, seed: round });
+    const res = lockedItems.length ? buildAround(lockedItems, need.length ? need : ['bottom', 'top', 'shoes'], pool, ctx) : generateLooks(pool, ctx, {}, { count: 3, seed: round + 1, avoid: new Set(looks.flatMap(l => l.pieces.map(p => p.id))) });
     setLooks(res.map((l, i) => ({ key: `q${round}-${i}`, pieces: l.pieces as Item[], reasons: l.reasons, score: pctScore(l.s) })));
     setMissing(''); setOffline(true); setRound(r => r + 1);
   };
@@ -61,6 +64,11 @@ export default function StylistPage() {
   return (
     <>
       <PageHeader eyebrow="AI Stylist" title="Three looks, any occasion">Only from your own wardrobe — nothing invented, nothing in the wash.</PageHeader>
+      {!items.some(i => i.category === 'bottom' || i.category === 'onepiece') && (
+        <p className="mb-6 rounded-xl bg-warn-soft px-4 py-3 text-sm text-warn">
+          There are no trousers, jeans or shorts in your wardrobe yet, so looks will be tops, layers and shoes only. <a href="/app/add" className="font-medium underline">Add your bottoms</a> for complete outfits.
+        </p>
+      )}
 
       <Card className="mb-6 space-y-5 p-4 sm:p-6">
         <div>

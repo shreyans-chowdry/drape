@@ -4,7 +4,8 @@ export type Weather = {
   tempC: number; feelsC: number; code: number; label: string; icon: string;
   rain: boolean; humidity: number; windKph: number; isDay: boolean; place?: string;
 };
-export type DayForecast = { date: string; maxC: number; minC: number; code: number; label: string; icon: string; rainChance: number };
+/** `typical` = no forecast yet; these are the same dates last year, as a guide. */
+export type DayForecast = { date: string; maxC: number; minC: number; code: number; label: string; icon: string; rainChance: number; typical?: boolean };
 
 const CODES: Record<number, [string, string]> = {
   0: ['Clear', '☀️'], 1: ['Mostly clear', '🌤'], 2: ['Partly cloudy', '⛅'], 3: ['Overcast', '☁️'],
@@ -58,4 +59,37 @@ export async function geocode(name: string) {
   const j = await res.json();
   return ((j.results ?? []) as { name: string; admin1?: string; country?: string; latitude: number; longitude: number }[])
     .map(r => ({ name: [r.name, r.admin1, r.country].filter(Boolean).join(', '), lat: r.latitude, lon: r.longitude }));
+}
+
+const shiftDays = (iso: string, days: number) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); };
+
+/** What the weather was on the same dates last year (52 weeks back): a fair guide beyond the forecast window. */
+export async function typicalWeather(lat: number, lon: number, start: string, end: string): Promise<DayForecast[]> {
+  const u = new URL('https://archive-api.open-meteo.com/v1/archive');
+  u.searchParams.set('latitude', String(round(lat)));
+  u.searchParams.set('longitude', String(round(lon)));
+  u.searchParams.set('start_date', shiftDays(start, -364));
+  u.searchParams.set('end_date', shiftDays(end, -364));
+  u.searchParams.set('daily', 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum');
+  u.searchParams.set('timezone', 'auto');
+  const res = await fetch(u, { next: { revalidate: 86400 }, signal: AbortSignal.timeout(10_000) }).catch(() => null);
+  if (!res?.ok) return [];
+  const d = (await res.json()).daily;
+  if (!d?.time) return [];
+  return (d.time as string[]).map((date, i) => {
+    const [label, icon] = describe(d.weather_code[i]);
+    const mm = d.precipitation_sum[i] ?? 0;
+    return { date: shiftDays(date, 364), maxC: d.temperature_2m_max[i], minC: d.temperature_2m_min[i], code: d.weather_code[i], label, icon, rainChance: mm > 2 ? 70 : mm > 0.3 ? 40 : 10, typical: true };
+  }).filter(x => x.maxC != null && x.minC != null);
+}
+
+/** Forecast where available, last year's weather for the rest. */
+export async function tripWeather(lat: number, lon: number, start: string, end: string): Promise<DayForecast[]> {
+  const fc = await forecast(lat, lon, start, end).catch(() => [] as DayForecast[]);
+  const have = new Set(fc.map(d => d.date));
+  let missing = false;
+  for (let d = start; d <= end; d = shiftDays(d, 1)) if (!have.has(d)) { missing = true; break; }
+  if (!missing) return fc;
+  const typical = (await typicalWeather(lat, lon, start, end)).filter(d => !have.has(d.date));
+  return [...fc, ...typical].sort((a, b) => a.date.localeCompare(b.date));
 }

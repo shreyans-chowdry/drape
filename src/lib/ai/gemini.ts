@@ -89,8 +89,11 @@ async function once(model: string, body: unknown): Promise<GeminiResponse> {
 export async function generate(models: string[], body: Record<string, unknown>, meta: Meta): Promise<GenResult> {
   const s = await settings();
   let last: unknown;
-  for (const model of models.filter(Boolean)) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+  const list = [...new Set(models.filter(Boolean))];
+  for (const [i, model] of list.entries()) {
+    // An overloaded model is better skipped than retried while another one can answer.
+    const tries = i === list.length - 1 ? 2 : 1;
+    for (let attempt = 0; attempt < tries; attempt++) {
       const t0 = Date.now();
       try {
         const data = await once(model, body);

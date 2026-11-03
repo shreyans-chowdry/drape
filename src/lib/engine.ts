@@ -365,9 +365,54 @@ function pieceTotal(pieces: EngineItem[], ctx: Ctx, prefs: Prefs) {
 
 function needsLayer(ctx: Ctx) { return ctx.tempC != null && ctx.tempC < 18; }
 
+// ---------- hard weather rules (scores alone let a hoodie win at 32°) ----------
+const RAIN_LAYERS = ['raincoat', 'windbreaker'];
+const COLD_ACCESSORIES = ['beanie', 'gloves', 'scarf'];
+
+/** Can this piece be worn at all at this temperature? Unknown weather allows everything. */
+export function weatherOk(item: EngineItem, tempC?: number | null, rain?: boolean): boolean {
+  if (tempC == null) return true;
+  const w = itemW(item);
+  switch (item.category) {
+    case 'top': case 'onepiece':
+      return w <= (tempC >= 24 ? 2 : tempC >= 17 ? 3 : tempC >= 10 ? 4 : 5);
+    case 'bottom':
+      return tempC < 22 || w <= 3;
+    case 'outer':
+      if (rain && RAIN_LAYERS.includes(item.type)) return w <= 3 || tempC < 15;
+      return tempC < 15 ? (w < 5 || tempC < 10) : tempC < 22 && w <= 3;
+    case 'accessory':
+      return !COLD_ACCESSORIES.includes(item.type) || tempC < 14;
+    default:
+      return true;
+  }
+}
+
+/** Whole-look check: no warm top under a jacket on a mild day, nothing that fails weatherOk. */
+export function lookWeatherOk(pieces: EngineItem[], tempC?: number | null, rain?: boolean): boolean {
+  if (tempC == null) return true;
+  if (!pieces.every(p => weatherOk(p, tempC, rain))) return false;
+  const outer = pieces.find(p => p.category === 'outer');
+  const top = pieces.find(p => p.category === 'top');
+  return !(outer && top && itemW(top) >= 3 && tempC >= 12 && !(rain && RAIN_LAYERS.includes(outer.type)));
+}
+
+/** Pieces wearable in this weather; if a whole category would vanish, keep its lightest pieces instead. */
+export function forWeather<T extends EngineItem>(items: T[], tempC?: number | null, rain?: boolean): T[] {
+  if (tempC == null) return items;
+  const ok = items.filter(i => weatherOk(i, tempC, rain));
+  for (const cat of ['top', 'bottom', 'shoes'] as Category[]) {
+    if (ok.some(i => i.category === cat) || (cat !== 'shoes' && ok.some(i => i.category === 'onepiece'))) continue;
+    const pool = items.filter(i => i.category === cat);
+    const lightest = Math.min(...pool.map(itemW));
+    ok.push(...pool.filter(i => itemW(i) === lightest));
+  }
+  return ok;
+}
+
 /** For "I'm wearing X — what goes with it?" */
 export function suggestFor<T extends EngineItem>(anchor: T, items: T[], ctx: Ctx = {}, prefs: Prefs = {}) {
-  const pool = items.filter(i => i.id !== anchor.id && !i.archived && !i.unavailable);
+  const pool = forWeather(items.filter(i => i.id !== anchor.id && !i.archived && !i.unavailable), ctx.tempC, ctx.rain);
   const groups: Partial<Record<Category, { item: T; s: number; reasons: Reason[] }[]>> = {};
   for (const cat of COMPLEMENT[anchor.category] || []) {
     groups[cat] = pool
@@ -392,6 +437,7 @@ export function suggestFor<T extends EngineItem>(anchor: T, items: T[], ctx: Ctx
       const best = pool.filter(i => i.category === cat).map(i => ({ i, s: pieceTotal([...pieces, i], ctx, prefs).s })).sort((a, b) => b.s - a.s)[0];
       if (!best) continue;
       if (cat === 'outer' && ctx.tempC != null && ctx.tempC >= 10 && best.s < pieceTotal(pieces, ctx, prefs).s - 0.08) continue;
+      if (cat === 'outer' && !lookWeatherOk([...pieces, best.i], ctx.tempC, ctx.rain)) continue;
       pieces.push(best.i);
     }
     looks.push({ pieces: order(pieces), ...pieceTotal(pieces, ctx, prefs) });
@@ -403,9 +449,14 @@ export function suggestFor<T extends EngineItem>(anchor: T, items: T[], ctx: Ctx
 const ORDER: Category[] = ['outer', 'top', 'onepiece', 'bottom', 'shoes', 'accessory'];
 export const order = <T extends EngineItem>(pieces: T[]): T[] => [...pieces].sort((a, b) => ORDER.indexOf(a.category) - ORDER.indexOf(b.category));
 
-/** Whole-outfit generator for "what should I wear today?" */
-export function generateLooks<T extends EngineItem>(items: T[], ctx: Ctx = {}, prefs: Prefs = {}, { count = 3, seed = 0 } = {}): Look<T>[] {
-  const pool = items.filter(i => !i.archived && !i.unavailable);
+/**
+ * Whole-outfit generator for "what should I wear today?"
+ * `avoid` holds ids shown or worn recently; they are pushed down so the same
+ * pieces don't come back on every visit. Within one call, no top repeats and
+ * bottoms and shoes are spread out when the wardrobe allows it.
+ */
+export function generateLooks<T extends EngineItem>(items: T[], ctx: Ctx = {}, prefs: Prefs = {}, { count = 3, seed = 0, avoid = new Set<string>() }: { count?: number; seed?: number; avoid?: Set<string> } = {}): Look<T>[] {
+  const pool = forWeather(items.filter(i => !i.archived && !i.unavailable), ctx.tempC, ctx.rain);
   const by = (cat: Category) => pool.filter(i => i.category === cat);
   const tops = by('top'), bottoms = by('bottom'), shoes = by('shoes'), outers = by('outer'), ones = by('onepiece');
   const rand = mulberry(seed);
@@ -414,26 +465,33 @@ export function generateLooks<T extends EngineItem>(items: T[], ctx: Ctx = {}, p
   const candidates: { base: T[]; s: number }[] = [];
   for (const t of tops) for (const b of bottoms) {
     const p = pairScore(t, b, prefs).s * 2 + contextScore(t, ctx).s + contextScore(b, ctx).s;
-    candidates.push({ base: [t, b], s: p + jitter() });
+    candidates.push({ base: [t, b], s: p + jitter() - (avoid.has(t.id) ? 0.7 : 0) - (avoid.has(b.id) ? 0.12 : 0) });
   }
-  for (const o of ones) candidates.push({ base: [o], s: 0.75 * 2 + contextScore(o, ctx).s * 2 + jitter() });
+  // No bottoms catalogued yet: still suggest top + shoes (+ layer) rather than nothing.
+  if (!bottoms.length) for (const t of tops) candidates.push({ base: [t], s: 0.6 * 2 + contextScore(t, ctx).s * 2 + jitter() - (avoid.has(t.id) ? 0.7 : 0) });
+  for (const o of ones) candidates.push({ base: [o], s: 0.75 * 2 + contextScore(o, ctx).s * 2 + jitter() - (avoid.has(o.id) ? 0.7 : 0) });
   candidates.sort((a, b) => b.s - a.s);
 
   const looks: Look<T>[] = [];
-  const usedTop = new Set<string>(), usedBottom = new Set<string>();
+  const usedTop = new Set<string>(), usedBottom = new Set<string>(), usedOther = new Set<string>();
+  const spareBottoms = new Set(bottoms.map(b => b.id)).size >= count;
   for (const c of candidates) {
     if (looks.length >= count) break;
     const [a, b] = c.base;
-    if (usedTop.has(a.id) || (b && usedBottom.has(b.id) && looks.length < count - 1)) continue;
+    if (usedTop.has(a.id) || (b && usedBottom.has(b.id) && (spareBottoms || looks.length < count - 1))) continue;
     const pieces = [...c.base];
-    const bestOf = (list: T[]) => list.map(i => ({ i, s: pieceTotal([...pieces, i], ctx, prefs).s + jitter() })).sort((x, y) => y.s - x.s)[0];
+    const bestOf = (list: T[]) => list
+      .map(i => ({ i, s: pieceTotal([...pieces, i], ctx, prefs).s + jitter() - (usedOther.has(i.id) ? 0.1 : 0) - (avoid.has(i.id) ? 0.05 : 0) }))
+      .sort((x, y) => y.s - x.s)[0];
     const sh = bestOf(shoes); if (sh) pieces.push(sh.i);
     if (needsLayer(ctx) || ctx.occasion === 'formal' || ctx.occasion === 'work') {
-      const ou = bestOf(outers);
+      const ou = bestOf(outers.filter(o => lookWeatherOk([...pieces, o], ctx.tempC, ctx.rain)));
       const now = pieceTotal(pieces, ctx, prefs).s;
-      if (ou && (ou.s > now || (needsLayer(ctx) && ((ctx.tempC ?? 20) < 10 || ou.s > now - 0.08)))) pieces.push(ou.i);
+      const lightTopWhenCold = ctx.tempC != null && ctx.tempC < 15 && itemW(a) < 3;
+      if (ou && (ou.s > now || (needsLayer(ctx) && ((ctx.tempC ?? 20) < 10 || lightTopWhenCold || ou.s > now - 0.08)))) pieces.push(ou.i);
     }
     usedTop.add(a.id); if (b) usedBottom.add(b.id);
+    pieces.slice(c.base.length).forEach(p => usedOther.add(p.id));
     looks.push({ pieces: order(pieces), ...pieceTotal(pieces, ctx, prefs) });
   }
   return looks;
@@ -445,7 +503,7 @@ export function generateLooks<T extends EngineItem>(items: T[], ctx: Ctx = {}, p
  */
 export function buildAround<T extends EngineItem>(locked: T[], need: Category[], items: T[], ctx: Ctx = {}, prefs: Prefs = {}, { count = 3 } = {}): Look<T>[] {
   const lockedIds = new Set(locked.map(i => i.id));
-  const pool = items.filter(i => !i.archived && !i.unavailable && !lockedIds.has(i.id));
+  const pool = forWeather(items.filter(i => !i.archived && !i.unavailable && !lockedIds.has(i.id)), ctx.tempC, ctx.rain);
   const has = (cat: Category) => locked.some(i => i.category === cat || (i.category === 'onepiece' && (cat === 'top' || cat === 'bottom')));
   const slots = need.filter(c => !has(c));
   if (!slots.length) return [{ pieces: order(locked), ...pieceTotal(locked, ctx, prefs) }];
@@ -457,7 +515,7 @@ export function buildAround<T extends EngineItem>(locked: T[], need: Category[],
   for (const f of firstOptions) {
     const pieces = [...locked, f.i];
     for (const cat of slots.slice(1)) {
-      const best = pool.filter(i => i.category === cat && !pieces.includes(i))
+      const best = pool.filter(i => i.category === cat && !pieces.includes(i) && (cat !== 'outer' || lookWeatherOk([...pieces, i], ctx.tempC, ctx.rain)))
         .map(i => ({ i, s: pieceTotal([...pieces, i], ctx, prefs).s }))
         .sort((a, b) => b.s - a.s)[0];
       if (best) pieces.push(best.i);

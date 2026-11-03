@@ -6,6 +6,7 @@ import { BRAND } from '@/lib/brand';
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from '@/lib/env';
 import { FAQ } from '@/lib/faq';
 import { Garment } from '@/components/garments';
+import { Silk } from '@/components/site/silk';
 
 export const revalidate = 3600;
 
@@ -32,7 +33,7 @@ const FEATURES = [
   { icon: Shirt, title: 'Match', body: 'Choose one piece and see everything that goes with it, ranked.' },
   { icon: ScanSearch, title: 'Own It', body: 'Snap something in a shop. Find out if you already own it — or something close — before you buy.' },
   { icon: MapPin, title: 'Closet Finder', body: 'Room, wardrobe, shelf, box. Ask “where is my navy blazer?” and get the exact spot.' },
-  { icon: Plane, title: 'Trip Planner', body: 'Day and evening outfits matched to the destination’s forecast, plus a packing list.' },
+  { icon: Plane, title: 'Trip Planner', body: 'Drop in your itinerary. Each stop is dressed for its own weather, with a packing list you can edit day by day.' },
   { icon: MessageCircle, title: 'Chat', body: 'Ask your stylist anything, with photos. Answers only use clothes you have.' },
   { icon: Check, title: 'Calendar & insights', body: 'Plan ahead, log what you wore, and see cost per wear and what never leaves the shelf.' },
 ];
@@ -42,6 +43,8 @@ export default async function Home() {
   return (
     <>
       {/* Hero */}
+      <div className="relative isolate overflow-hidden">
+      <Silk className="pointer-events-none absolute inset-0 -z-10 size-full" />
       <section className="mx-auto grid max-w-6xl items-center gap-12 px-4 pb-20 pt-12 sm:px-6 lg:grid-cols-[1.1fr_1fr] lg:pt-20">
         <div className="animate-rise">
           <p className="mb-4 text-sm font-medium uppercase tracking-[0.18em] text-accent">Your AI wardrobe</p>
@@ -55,6 +58,7 @@ export default async function Home() {
         </div>
         <Preview />
       </section>
+      </div>
 
       {/* Promises */}
       <section className="border-y border-line bg-card">
